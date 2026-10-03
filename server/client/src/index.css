@@ -4,35 +4,62 @@
 
 :root {
   color-scheme: dark;
+
+  /* Superficies oscuras minimalistas modernas (Grafito y Obsidiana de alta legibilidad) */
+  --bg-color: #090a0f;
+  --surface-color: #111319;
+  --surface-elevated: #181a24;
+  --surface-highlight: #222533;
+  --border-color: #272a3a;
+  --border-strong: #383c52;
+  --border-accent: #6366f1;
+  --foreground: #f8fafc;
+  --foreground-muted: #94a3b8;
+  --foreground-subtle: #64748b;
+
+  /* Paleta de acento moderna: Índigo Zafiro Eléctrico (armoniza perfectamente con el logo rojo) */
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-glow: rgba(99, 102, 241, 0.25);
 }
 
 body {
-  margin: 0;
+  margin: 0 auto;
+  width: 95%;
+  max-width: 98vw;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: #090d16;
-  color: #f8fafc;
+  background-color: var(--bg-color);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbars modernos estilizados */
+/* Scrollbars modernos y discretos */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: var(--bg-color);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: var(--border-color);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: var(--border-strong);
 }
 
 /* Transiciones suaves en botones y controles */
 button, input, select {
-  transition: all 0.15s ease-in-out;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }

@@ -2,23 +2,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ShieldCheck, 
   HelpCircle, 
-  Terminal, 
+  Laptop, 
   LogOut, 
-  RefreshCw, 
+  Building2,
   CheckCircle2, 
-  AlertCircle,
-  Wifi
+  AlertCircle
 } from 'lucide-react';
 
 import { api, getAuthToken } from './lib/api';
-import Hero from './components/Hero';
+import PavilionSelector from './components/PavilionSelector';
 import DeviceTable from './components/DeviceTable';
-import QuickCatalog from './components/QuickCatalog';
-import BulkActionBar from './components/BulkActionBar';
+import SidebarControl from './components/SidebarControl';
+import PavilionModal from './components/PavilionModal';
 import OnboardingModal from './components/OnboardingModal';
 import LoginModal from './components/LoginModal';
-import EditRulesModal from './components/EditRulesModal';
 import AgentGuideModal from './components/AgentGuideModal';
+import ConfirmDeleteModal from './components/ConfirmDeleteModal';
 
 export default function App() {
   // Estado de autenticación
@@ -27,25 +26,31 @@ export default function App() {
 
   // Datos del sistema
   const [devices, setDevices] = useState([]);
+  const [pavilions, setPavilions] = useState([]);
+  const [laboratories, setLaboratories] = useState([]);
+  const [selectedPavilion, setSelectedPavilion] = useState('ALL');
+  const [selectedLab, setSelectedLab] = useState('ALL');
   const [onlineCount, setOnlineCount] = useState(0);
-  const [favoritesByCategory, setFavoritesByCategory] = useState({});
   const [systemInfo, setSystemInfo] = useState({});
   const [isLoading, setIsLoading] = useState(false);
-  const [isSeeding, setIsSeeding] = useState(false);
 
   // Selección de equipos
   const [selectedHostnames, setSelectedHostnames] = useState([]);
 
-  // Notificaciones flotantes
+  // Notificaciones flotantes (Toast)
   const [toast, setToast] = useState(null);
 
   // Modales
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showPavilionModal, setShowPavilionModal] = useState(false);
   const [showAgentGuide, setShowAgentGuide] = useState(false);
-  const [editModalData, setEditModalData] = useState({
+  const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
-    hostnames: [],
-    initialUrls: []
+    type: 'single', // 'single' | 'bulk' | 'lab'
+    title: '',
+    description: '',
+    payload: null,
+    count: 0
   });
 
   const showToast = (message, type = 'success') => {
@@ -59,16 +64,22 @@ export default function App() {
   const fetchData = useCallback(async () => {
     if (!getAuthToken()) return;
     try {
-      const [devicesRes, favsRes, sysRes] = await Promise.all([
-        api.getDevices().catch(() => ({ devices: [], onlineCount: 0 })),
-        api.getFavorites().catch(() => ({ categories: {} })),
+      const [devicesRes, sysRes] = await Promise.all([
+        api.getDevices().catch(() => ({ devices: [], pavilions: [], laboratories: [], onlineCount: 0 })),
         api.getSystemInfo().catch(() => ({}))
       ]);
 
-      setDevices(devicesRes.devices || []);
+      const incomingDevices = devicesRes.devices || [];
+      setDevices(incomingDevices);
+      setPavilions(devicesRes.pavilions || []);
+      setLaboratories(devicesRes.laboratories || []);
       setOnlineCount(devicesRes.onlineCount || 0);
-      setFavoritesByCategory(favsRes.categories || {});
       setSystemInfo(sysRes || {});
+
+      // Mantener consistencia sin conflictos si otro usuario en otra PC eliminó equipos
+      setSelectedHostnames(prev => 
+        prev.filter(host => incomingDevices.some(d => d.hostname === host))
+      );
     } catch (err) {
       console.error('Error al sincronizar datos:', err);
     }
@@ -81,7 +92,6 @@ export default function App() {
       setIsAuthenticated(true);
       fetchData();
 
-      // Verificar si es la primera vez para mostrar Onboarding
       const hasSeenTour = localStorage.getItem('web_blocker_tour_seen');
       if (!hasSeenTour) {
         setShowOnboarding(true);
@@ -89,24 +99,54 @@ export default function App() {
     }
   }, [fetchData]);
 
-  // Actualización periódica en tiempo real (cada 6 segundos)
+  // Sincronización en tiempo real multidispositivo (Server-Sent Events + Sondeo de respaldo)
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    const token = getAuthToken();
+    let eventSource = null;
+
+    if (token) {
+      try {
+        const sseUrl = `/api/devices/events?token=${encodeURIComponent(token)}`;
+        eventSource = new EventSource(sseUrl);
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'sync') {
+              // Sincronización instantánea entre navegadores en diferentes laboratorios
+              fetchData();
+            }
+          } catch {
+            // ignorar errores de parseo
+          }
+        };
+
+        eventSource.onerror = () => {
+          // El navegador reconecta automáticamente ante caídas temporales de red
+        };
+      } catch (err) {
+        console.warn('SSE no disponible en este navegador, usando sondeo:', err);
+      }
+    }
+
+    // Sondeo de respaldo continuo cada 2.5s para máxima consistencia y evitar conflictos
     const interval = setInterval(() => {
       fetchData();
-    }, 6000);
-    return () => clearInterval(interval);
+    }, 2500);
+
+    return () => {
+      if (eventSource) eventSource.close();
+      clearInterval(interval);
+    };
   }, [isAuthenticated, fetchData]);
 
   const handleLoginSuccess = (user) => {
     setIsAuthenticated(true);
     setCurrentUser(user);
     fetchData();
-    showToast('Bienvenido al Centro de Control.');
-    const hasSeenTour = localStorage.getItem('web_blocker_tour_seen');
-    if (!hasSeenTour) {
-      setShowOnboarding(true);
-    }
+    showToast('Bienvenido a UPC NetShield · Campus Villa');
   };
 
   const handleLogout = () => {
@@ -115,10 +155,12 @@ export default function App() {
     setSelectedHostnames([]);
   };
 
-  const handleCloseOnboarding = () => {
-    setShowOnboarding(false);
-    localStorage.setItem('web_blocker_tour_seen', 'true');
-  };
+  // Filtrado de equipos por Pabellón y Laboratorio
+  const filteredDevices = devices.filter(d => {
+    const matchPavilion = selectedPavilion === 'ALL' || d.pavilion === selectedPavilion;
+    const matchLab = selectedLab === 'ALL' || d.laboratory === selectedLab;
+    return matchPavilion && matchLab;
+  });
 
   // Manejo de selecciones
   const handleToggleSelect = (hostname) => {
@@ -129,25 +171,57 @@ export default function App() {
     );
   };
 
-  const handleSelectAll = () => {
-    if (selectedHostnames.length === devices.length) {
-      setSelectedHostnames([]);
+  const handleSelectAll = (newSelection) => {
+    if (Array.isArray(newSelection)) {
+      setSelectedHostnames(newSelection);
     } else {
-      setSelectedHostnames(devices.map(d => d.hostname));
+      if (selectedHostnames.length === filteredDevices.length) {
+        setSelectedHostnames([]);
+      } else {
+        setSelectedHostnames(filteredDevices.map(d => d.hostname));
+      }
     }
   };
 
-  // Asignar una URL del catálogo a los equipos seleccionados
-  const handleApplyUrlToSelected = async (url) => {
-    if (selectedHostnames.length === 0) {
-      showToast('Por favor marca las computadoras en las que deseas aplicar la regla.', 'warn');
+  // Seleccionar todos los equipos de un laboratorio específico
+  const handleSelectWholeLab = (labCode) => {
+    const labHostnames = devices.filter(d => d.laboratory === labCode).map(d => d.hostname);
+    setSelectedHostnames(prev => {
+      const allSelected = labHostnames.length > 0 && labHostnames.every(h => prev.includes(h));
+      if (allSelected) {
+        return prev.filter(h => !labHostnames.includes(h));
+      } else {
+        return Array.from(new Set([...prev, ...labHostnames]));
+      }
+    });
+    showToast(`Selección actualizada para el laboratorio ${labCode}.`);
+  };
+
+  // Seleccionar todos los visibles
+  const handleSelectAllVisible = () => {
+    setSelectedHostnames(filteredDevices.map(d => d.hostname));
+    showToast(`Se seleccionaron los ${filteredDevices.length} equipos visibles.`);
+  };
+
+  // Aplicar modo de navegación a equipos seleccionados
+  const handleApplyPolicy = async ({ hostnames, policyMode, urls = [], mode = 'add' }) => {
+    if (!hostnames || hostnames.length === 0) {
+      showToast('Selecciona al menos un equipo en la tabla.', 'warning');
       return;
     }
 
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      await api.blockUrls(selectedHostnames, [url], 'add');
-      showToast(`Regla aplicada a ${selectedHostnames.length} computadora(s): ${url}`);
+      await api.blockUrls(hostnames, urls, mode, policyMode);
+      const modeLabel = policyMode === 'block_all' 
+        ? 'Bloqueo Total' 
+        : policyMode === 'allow_list' 
+        ? 'Permitir Lista' 
+        : policyMode === 'block_list' 
+        ? 'Bloquear Lista' 
+        : 'Navegación Libre';
+
+      showToast(`Regla [${modeLabel}] aplicada a ${hostnames.length} equipo(s).`);
       await fetchData();
     } catch (err) {
       showToast(err.message, 'error');
@@ -156,41 +230,133 @@ export default function App() {
     }
   };
 
-  // Abrir modal de edición para un solo equipo
-  const handleOpenEditRulesSingle = (device) => {
-    setEditModalData({
+  // Agregar una URL a los seleccionados con persistencia
+  const handleAddUrlToSelected = async (url, policyMode) => {
+    if (selectedHostnames.length === 0) {
+      showToast('Marca las casillas de los equipos que deseas configurar.', 'warning');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const ruleType = policyMode === 'allow_list' ? 'allow' : 'block';
+      await api.blockUrls(selectedHostnames, [url], 'add', policyMode, ruleType);
+      showToast(`Sitio "${url}" agregado a ${selectedHostnames.length} equipo(s).`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Desbloquear / Restablecer libre navegación
+  const handleUnblock = async (hostnames) => {
+    if (!hostnames || hostnames.length === 0) return;
+    setIsLoading(true);
+    try {
+      await api.unblockAll(hostnames);
+      showToast(`Navegación libre restablecida en ${hostnames.length} equipo(s).`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Solicitud de eliminación individual de un equipo
+  const handleRequestDeleteDevice = (hostname) => {
+    setDeleteModal({
       isOpen: true,
-      hostnames: [device.hostname],
-      initialUrls: device.blockedUrls || []
+      type: 'single',
+      title: `¿Eliminar ${hostname}?`,
+      description: `Esta computadora será eliminada del registro de monitorización. Si el agente sigue activo, volverá a conectarse en el siguiente pulso.`,
+      payload: hostname,
+      count: 1
     });
   };
 
-  // Abrir modal de edición para computadoras seleccionadas
-  const handleOpenEditRulesBulk = () => {
-    if (selectedHostnames.length === 0) return;
-    // Combinar reglas de los equipos seleccionados
-    const combinedUrls = Array.from(
-      new Set(
-        devices
-          .filter(d => selectedHostnames.includes(d.hostname))
-          .flatMap(d => d.blockedUrls || [])
-      )
-    );
 
-    setEditModalData({
+  // Eliminar una URL específica de los seleccionados
+  const handleRemoveRuleUrl = async (url, policyMode) => {
+    if (selectedHostnames.length === 0) return;
+    setIsLoading(true);
+    try {
+      await api.removeRuleUrl(selectedHostnames, url, policyMode);
+      showToast(`Página "${url}" eliminada.`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Actualizar una URL editada en los seleccionados
+  const handleUpdateRuleUrl = async (oldUrl, newUrl, policyMode) => {
+    if (selectedHostnames.length === 0) return;
+    setIsLoading(true);
+    try {
+      await api.updateRuleUrl(selectedHostnames, oldUrl, newUrl, policyMode);
+      showToast(`Página actualizada a "${newUrl}".`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
+  // Solicitud de eliminación de equipos seleccionados
+  const handleRequestDeleteSelected = () => {
+    if (selectedHostnames.length === 0) return;
+    setDeleteModal({
       isOpen: true,
-      hostnames: selectedHostnames,
-      initialUrls: combinedUrls
+      type: 'bulk',
+      title: `¿Eliminar ${selectedHostnames.length} equipo(s) seleccionados?`,
+      description: `Se eliminarán del registro los equipos marcados (${selectedHostnames.join(', ')}).`,
+      payload: selectedHostnames,
+      count: selectedHostnames.length
     });
   };
 
-  // Guardar reglas desde el modal
-  const handleSaveModalRules = async (hostnames, urls) => {
+  // Solicitud de eliminación de un laboratorio completo
+  const handleRequestDeleteLab = (labCode) => {
+    const labDevices = devices.filter(d => d.laboratory === labCode);
+    setDeleteModal({
+      isOpen: true,
+      type: 'lab',
+      title: `¿Eliminar Laboratorio ${labCode}?`,
+      description: `Se eliminarán los ${labDevices.length} equipos registrados bajo el laboratorio ${labCode}.`,
+      payload: labCode,
+      count: labDevices.length
+    });
+  };
+
+  // Ejecutar eliminación confirmada
+  const handleConfirmDelete = async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      await api.blockUrls(hostnames, urls, 'replace');
-      setEditModalData(prev => ({ ...prev, isOpen: false }));
-      showToast(`Reglas actualizadas para ${hostnames.length} computadora(s).`);
+      if (deleteModal.type === 'single') {
+        await api.deleteDevice(deleteModal.payload);
+        setSelectedHostnames(prev => prev.filter(h => h !== deleteModal.payload));
+        showToast(`Equipo ${deleteModal.payload} eliminado del sistema.`);
+      } else if (deleteModal.type === 'bulk') {
+        await api.deleteBulkDevices(deleteModal.payload);
+        setSelectedHostnames([]);
+        showToast(`Se eliminaron ${deleteModal.count} equipos del registro.`);
+      } else if (deleteModal.type === 'lab') {
+        await api.deleteLaboratory(deleteModal.payload);
+        setSelectedLab('ALL');
+        setSelectedHostnames(prev => {
+          const labNames = devices.filter(d => d.laboratory === deleteModal.payload).map(d => d.hostname);
+          return prev.filter(h => !labNames.includes(h));
+        });
+        showToast(`Laboratorio ${deleteModal.payload} eliminado exitosamente.`);
+      }
+      setDeleteModal({ isOpen: false, type: 'single', title: '', description: '', payload: null, count: 0 });
       await fetchData();
     } catch (err) {
       showToast(err.message, 'error');
@@ -199,117 +365,19 @@ export default function App() {
     }
   };
 
-  // Desbloquear un solo equipo
-  const handleUnblockSingle = async (hostname) => {
-    try {
-      setIsLoading(true);
-      await api.unblockAll([hostname]);
-      showToast(`Se removieron las restricciones de ${hostname}.`);
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Desbloquear computadoras seleccionadas
-  const handleUnblockSelected = async () => {
-    if (selectedHostnames.length === 0) return;
-    try {
-      setIsLoading(true);
-      await api.unblockAll(selectedHostnames);
-      showToast(`Se desbloquearon ${selectedHostnames.length} computadoras.`);
-      setSelectedHostnames([]);
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Eliminar equipo
-  const handleDeleteDevice = async (hostname) => {
-    if (!confirm(`¿Deseas quitar la computadora ${hostname} de la lista?`)) return;
-    try {
-      await api.deleteDevice(hostname);
-      setSelectedHostnames(prev => prev.filter(h => h !== hostname));
-      showToast(`Computadora ${hostname} eliminada.`);
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
-
-  // Cargar computadoras de prueba
-  const handleSeedDemo = async () => {
-    try {
-      setIsSeeding(true);
-      await api.seedDemoDevices();
-      showToast('Se cargaron 3 computadoras de prueba con reglas de ejemplo.');
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      setIsSeeding(false);
-    }
-  };
-
-  // Agregar favorito personalizado
-  const handleAddCustomFavorite = async (fav) => {
-    try {
-      await api.createFavorite(fav);
-      showToast(`Página "${fav.title}" agregada al catálogo.`);
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
-
-  // Eliminar favorito
-  const handleDeleteFavorite = async (id) => {
-    try {
-      await api.deleteFavorite(id);
-      showToast('Página removida del catálogo de favoritos.');
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
-
-  // Restablecer favoritos predeterminados
-  const handleResetFavorites = async () => {
-    try {
-      await api.resetFavorites();
-      showToast('Se restablecieron las páginas favoritas predeterminadas.');
-      await fetchData();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
-
-
-  // Calcular total de páginas bloqueadas únicas en la red
-  const totalBlockedRules = Array.from(
-    new Set(devices.flatMap(d => d.blockedUrls || []))
-  ).length;
-
-  if (!isAuthenticated) {
-    return <LoginModal onLoginSuccess={handleLoginSuccess} />;
-  }
+  const totalRulesCount = devices.reduce((acc, d) => acc + (d.rulesCount || 0), 0);
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-brand-500/20">
-      {/* Toast flotante de notificaciones */}
+    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
+      {/* Toast flotante */}
       {toast && (
-        <div className="fixed top-5 right-5 z-50 animate-scale-in">
-          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-2xl border text-xs font-medium ${
+        <div className="fixed top-5 right-5 z-50 animate-bounce-short">
+          <div className={`px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold border ${
             toast.type === 'error'
-              ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-              : toast.type === 'warn'
-              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-              : 'bg-surface-elevated border-brand-500/30 text-white'
+              ? 'bg-rose-950/90 text-rose-200 border-rose-800'
+              : toast.type === 'warning'
+              ? 'bg-amber-950/90 text-amber-200 border-amber-800'
+              : 'bg-emerald-950/90 text-emerald-200 border-emerald-800'
           }`}>
             {toast.type === 'error' ? (
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
@@ -321,49 +389,69 @@ export default function App() {
         </div>
       )}
 
-      {/* Barra superior de navegación */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-md border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Logo y título */}
+      {/* Barra de navegación superior: UPC NetShield + Botones ordenados por prioridad */}
+      <header className="border-b border-border bg-surface/80 backdrop-blur-md sticky top-0 z-30 shadow-md shadow-black/20">
+        <div className="w-[95%] max-w-[98%] mx-auto h-16 flex items-center justify-between gap-4">
+          {/* Logo oficial y contexto Campus Villa */}
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-brand-500/10 border border-brand-500/30 text-brand-400 flex items-center justify-center shadow-sm">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="p-1 rounded-xl bg-surface-elevated border border-border/80 shadow-md shadow-black/20 flex items-center justify-center shrink-0">
+              <img 
+                src="/logo.png" 
+                alt="UPC NetShield Logo" 
+                className="w-8 h-8 object-contain rounded-lg"
+              />
             </div>
             <div>
-              <span className="font-bold text-white text-sm tracking-tight block">
-                Centro de Control Web
-              </span>
-              <span className="text-[10px] text-foreground-subtle block">
-                Red Local: {systemInfo.recommendedUrl || 'http://localhost:3000'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-base md:text-lg tracking-tight text-white">
+                  UPC NetShield
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-500/15 text-brand-400 border border-brand-500/30">
+                  Campus Villa
+                </span>
+              </div>
+              <p className="text-[11px] text-foreground-muted hidden sm:block">
+                Control de Acceso Web · Universidad Peruana de Ciencias Aplicadas
+              </p>
             </div>
           </div>
 
-          {/* Acciones de la barra superior */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowOnboarding(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground-muted hover:text-white text-xs font-medium transition"
-              title="Abrir el tour interactivo"
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-brand-400" />
-              <span className="hidden sm:inline">¿Cómo funciona?</span>
-            </button>
-
+          {/* Botones de acción ordenados por prioridad / jerarquía */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* 1. Conectar equipo (Prioridad Alta: Alto contraste, 100% legible) */}
             <button
               onClick={() => setShowAgentGuide(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground-muted hover:text-white text-xs font-medium transition"
-              title="Instrucciones para conectar computadoras Windows"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs md:text-sm font-bold tracking-wide transition active:scale-95 shadow-lg shadow-brand-500/25 border border-brand-400/40 cursor-pointer"
+              title="Guía rápida para conectar una computadora de laboratorio"
             >
-              <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">Guía del agente</span>
+              <Laptop className="w-4 h-4 text-white stroke-[2.5]" />
+              <span className="text-white drop-shadow-sm font-bold">Conectar equipo</span>
             </button>
 
-            <div className="h-4 w-px bg-border mx-1" />
+            {/* 2. Ver Pabellones (Exploración) */}
+            <button
+              onClick={() => setShowPavilionModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground hover:text-white text-xs font-medium transition active:scale-95 cursor-pointer"
+              title="Explorar pabellones y laboratorios"
+            >
+              <Building2 className="w-3.5 h-3.5 text-brand-400" />
+              <span className="hidden md:inline">Ver Pabellones</span>
+            </button>
 
+            {/* 3. ¿Cómo funciona esto? (Ayuda) */}
+            <button
+              onClick={() => setShowOnboarding(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground-muted hover:text-white text-xs font-medium transition active:scale-95 cursor-pointer"
+              title="Explicación del sistema y modos de bloqueo"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-brand-400" />
+              <span className="hidden lg:inline">¿Cómo funciona esto?</span>
+            </button>
+
+            {/* 4. Cerrar sesión */}
             <button
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-rose-500/10 hover:border-rose-500/30 text-foreground-subtle hover:text-rose-400 border border-border text-xs font-medium transition"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-surface-elevated hover:bg-rose-500/20 border border-border hover:border-rose-500/40 text-foreground-muted hover:text-rose-400 text-xs font-medium transition active:scale-95 cursor-pointer"
               title="Cerrar sesión"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -373,73 +461,111 @@ export default function App() {
         </div>
       </header>
 
-      {/* Contenido principal */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Componente Hero con resumen en lenguaje natural */}
-        <Hero
+      {/* Contenido Principal: Compacto directamente a la tabla sin descripciones redundantes */}
+      <main className="flex-1 w-[95%] max-w-[98%] mx-auto py-4 space-y-4">
+        {/* Selector y Navegación de Pabellones y Laboratorios (A, E, G, H y Sin asignar) */}
+        <PavilionSelector
+          pavilions={pavilions}
+          laboratories={laboratories}
+          selectedPavilion={selectedPavilion}
+          selectedLab={selectedLab}
+          onSelectPavilion={(code) => {
+            setSelectedPavilion(code);
+            setSelectedLab('ALL');
+          }}
+          onSelectLab={setSelectedLab}
+          onSelectWholeLab={handleSelectWholeLab}
+          onDeleteLab={handleRequestDeleteLab}
           totalDevices={devices.length}
-          onlineDevices={onlineCount}
-          totalBlockedRules={totalBlockedRules}
-          onOpenOnboarding={() => setShowOnboarding(true)}
-          onOpenAgentGuide={() => setShowAgentGuide(true)}
-          onSeedDemo={handleSeedDemo}
-          isSeeding={isSeeding}
+          totalOnline={onlineCount}
         />
 
-        {/* Catálogo rápido de páginas populares */}
-        <QuickCatalog
-          favoritesByCategory={favoritesByCategory}
-          selectedHostnames={selectedHostnames}
-          onApplyUrlToSelected={handleApplyUrlToSelected}
-          onAddCustomFavorite={handleAddCustomFavorite}
-          onDeleteFavorite={handleDeleteFavorite}
-          onResetFavorites={handleResetFavorites}
-          isLoading={isLoading}
-        />
+        {/* Layout en 2 Columnas: Izquierda (Tabla) + Derecha (Sidebar Sticky de Reglas) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          {/* Columna Izquierda: Tabla de Equipos con Paginación (Máx 50) y Métricas de Hero en el Pie */}
+          <div className="lg:col-span-8 space-y-4">
+            <DeviceTable
+              devices={filteredDevices}
+              selectedHostnames={selectedHostnames}
+              onToggleSelect={handleToggleSelect}
+              onSelectAll={handleSelectAll}
+              onRefresh={fetchData}
+              onDeleteDevice={handleRequestDeleteDevice}
+              onDeleteSelected={handleRequestDeleteSelected}
+              isLoading={isLoading}
+              totalOnline={onlineCount}
+              pavilionsCount={pavilions.length}
+              totalRulesCount={totalRulesCount}
+            />
 
-        {/* Tabla interactiva de computadoras */}
-        <DeviceTable
-          devices={devices}
-          selectedHostnames={selectedHostnames}
-          onToggleSelect={handleToggleSelect}
-          onSelectAll={handleSelectAll}
-          onOpenEditRules={handleOpenEditRulesSingle}
-          onUnblockSingle={handleUnblockSingle}
-          onDeleteDevice={handleDeleteDevice}
-          onRefresh={fetchData}
-          isLoading={isLoading}
-        />
+          </div>
+
+          {/* Columna Derecha: Sidebar Sticky "Reglas" siempre visible con edición de URLs */}
+          <div className="lg:col-span-4 self-start">
+            <SidebarControl
+              selectedHostnames={selectedHostnames}
+              devices={filteredDevices}
+              onApplyPolicy={handleApplyPolicy}
+              onAddUrlToSelected={handleAddUrlToSelected}
+              onRemoveRuleUrl={handleRemoveRuleUrl}
+              onUpdateRuleUrl={handleUpdateRuleUrl}
+              onUnblockSelected={() => handleUnblock(selectedHostnames)}
+              onSelectAllVisible={handleSelectAllVisible}
+              isLoading={isLoading}
+            />
+          </div>
+        </div>
       </main>
 
-      {/* Barra flotante de acciones para selección múltiple */}
-      <BulkActionBar
-        selectedCount={selectedHostnames.length}
-        onOpenApplyRules={handleOpenEditRulesBulk}
-        onUnblockSelected={handleUnblockSelected}
-        onClearSelection={() => setSelectedHostnames([])}
+      {/* Pie de página minimalista moderno */}
+      <footer className="w-[95%] max-w-[98%] mx-auto py-5 mt-auto border-t border-border/50 text-center text-xs text-foreground-subtle">
+        <p className="tracking-wide">
+          Concepto, dirección y Prompt Engineering por <span className="text-white font-medium">Bryan</span> • Desarrollado con IA © 2026
+        </p>
+      </footer>
+
+      {/* Modales */}
+      <ConfirmDeleteModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, type: 'single', title: '', description: '', payload: null, count: 0 })}
+        onConfirm={handleConfirmDelete}
+        title={deleteModal.title}
+        description={deleteModal.description}
+        itemCount={deleteModal.count}
         isLoading={isLoading}
       />
 
-      {/* Modales */}
+      <PavilionModal
+        isOpen={showPavilionModal}
+        onClose={() => setShowPavilionModal(false)}
+        pavilions={pavilions}
+        selectedPavilion={selectedPavilion}
+        onSelectPavilion={(code) => {
+          setSelectedPavilion(code);
+          setSelectedLab('ALL');
+        }}
+        totalDevices={devices.length}
+      />
+
       <OnboardingModal
         isOpen={showOnboarding}
-        onClose={handleCloseOnboarding}
+        onClose={() => setShowOnboarding(false)}
       />
 
       <AgentGuideModal
         isOpen={showAgentGuide}
         onClose={() => setShowAgentGuide(false)}
-        systemInfo={systemInfo}
+        serverIp={systemInfo.localIps?.[0] || '192.168.1.5'}
+        port={systemInfo.port || 3000}
       />
 
-      <EditRulesModal
-        isOpen={editModalData.isOpen}
-        onClose={() => setEditModalData(prev => ({ ...prev, isOpen: false }))}
-        targetHostnames={editModalData.hostnames}
-        initialUrls={editModalData.initialUrls}
-        onSaveRules={handleSaveModalRules}
-        isLoading={isLoading}
-      />
+      {/* Modal de Login si no está autenticado */}
+      {!isAuthenticated && (
+        <LoginModal
+          isOpen={!isAuthenticated}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      )}
     </div>
   );
 }

@@ -4,13 +4,15 @@ import { X, Terminal, Copy, Check, ExternalLink, ShieldCheck, Laptop, AlertCircl
 export default function AgentGuideModal({
   isOpen,
   onClose,
-  systemInfo = {}
+  systemInfo = {},
+  serverIp,
+  port = 3000
 }) {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  const serverUrl = systemInfo.recommendedUrl || 'http://192.168.1.X:3000';
+  const serverUrl = systemInfo.recommendedUrl || (serverIp ? `http://${serverIp}:${port}` : 'http://192.168.1.5:3000');
   const configLine = `ServerUrl = ${serverUrl}`;
 
   const handleCopy = () => {

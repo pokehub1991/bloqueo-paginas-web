@@ -1,64 +1,116 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Monitor, 
   Server, 
-  Laptop, 
-  Trash2, 
-  Unlock, 
-  SlidersHorizontal, 
-  ExternalLink,
-  ShieldAlert,
+  CheckSquare, 
+  Square, 
+  RefreshCw, 
+  Ban,
+  CheckCircle2,
+  AlertTriangle,
+  Globe,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
   ShieldCheck,
-  CheckSquare,
-  Square,
-  RefreshCw,
-  Plus
+  Building2
 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/api';
+
+const PAGE_SIZE = 50;
 
 export default function DeviceTable({
   devices = [],
   selectedHostnames = [],
   onToggleSelect,
   onSelectAll,
-  onOpenEditRules,
-  onUnblockSingle,
-  onDeleteDevice,
   onRefresh,
-  isLoading = false
+  onDeleteDevice,
+  onDeleteSelected,
+  isLoading = false,
+  totalOnline = 0,
+  pavilionsCount = 0,
+  totalRulesCount = 0
 }) {
-  const allSelected = devices.length > 0 && selectedHostnames.length === devices.length;
-  const someSelected = selectedHostnames.length > 0 && !allSelected;
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const getDeviceIcon = (hostname, os) => {
-    if (hostname.toLowerCase().includes('serv') || (os && os.toLowerCase().includes('server'))) {
-      return <Server className="w-4 h-4 text-indigo-400" />;
+  // Reiniciar a página 1 si el filtrado cambia la cantidad
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [devices.length]);
+
+  // Ordenar equipos limpiamente: primero en línea, luego por orden alfanumérico natural del Host
+  const sortedDevices = useMemo(() => {
+    return [...devices].sort((a, b) => {
+      if (a.isOnline !== b.isOnline) {
+        return a.isOnline ? -1 : 1;
+      }
+      return a.hostname.localeCompare(b.hostname, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [devices]);
+
+  const totalPages = Math.ceil(sortedDevices.length / PAGE_SIZE) || 1;
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, sortedDevices.length);
+  const paginatedDevices = sortedDevices.slice(startIndex, endIndex);
+
+  const allVisibleSelected = paginatedDevices.length > 0 && paginatedDevices.every(d => selectedHostnames.includes(d.hostname));
+  const someVisibleSelected = paginatedDevices.some(d => selectedHostnames.includes(d.hostname)) && !allVisibleSelected;
+
+  const handleSelectPage = () => {
+    if (allVisibleSelected) {
+      // Desmarcar los de la página actual
+      const pageHostnames = paginatedDevices.map(d => d.hostname);
+      onSelectAll(selectedHostnames.filter(h => !pageHostnames.includes(h)));
+    } else {
+      // Marcar los de la página actual
+      const pageHostnames = paginatedDevices.map(d => d.hostname);
+      onSelectAll(Array.from(new Set([...selectedHostnames, ...pageHostnames])));
     }
-    return <Monitor className="w-4 h-4 text-brand-400" />;
   };
 
   return (
-    <div className="rounded-2xl bg-surface border border-border shadow-xl shadow-black/20 overflow-hidden">
-      {/* Encabezado de la tabla */}
-      <div className="p-4 md:px-6 md:py-4 border-b border-border flex items-center justify-between gap-4">
+    <div className="rounded-2xl bg-surface border border-border shadow-xl shadow-black/20 overflow-hidden flex flex-col">
+      {/* Encabezado superior de la tabla */}
+      <div className="p-4 md:px-5 md:py-3.5 border-b border-border flex flex-wrap items-center justify-between gap-3 bg-surface-elevated/40">
         <div>
-          <h2 className="text-base font-semibold text-white">
-            Computadoras en la Red Local
+          <h2 className="text-sm md:text-base font-bold text-white flex items-center gap-2">
+            <span>Equipos de Cómputo</span>
           </h2>
           <p className="text-xs text-foreground-muted">
-            Lista de equipos detectados automáticamente por el agente.
+            {devices.length === 1 ? '1 equipo registrado' : `${devices.length} equipos registrados`}
+            {selectedHostnames.length > 0 && (
+              <span className="text-brand-400 font-semibold ml-1.5">
+                · {selectedHostnames.length} seleccionado(s)
+              </span>
+            )}
           </p>
         </div>
 
-        <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground-muted hover:text-white text-xs font-medium transition active:scale-95 disabled:opacity-50"
-          title="Actualizar lista de equipos"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-brand-400' : ''}`} />
-          <span>Actualizar</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Botón de eliminación en lote si hay equipos seleccionados */}
+          {selectedHostnames.length > 0 && onDeleteSelected && (
+            <button
+              onClick={onDeleteSelected}
+              disabled={isLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-semibold transition active:scale-95 disabled:opacity-50"
+              title="Eliminar equipos seleccionados del registro"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Eliminar ({selectedHostnames.length})</span>
+            </button>
+          )}
+
+          <button
+            onClick={onRefresh}
+            disabled={isLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground-muted hover:text-white text-xs font-medium transition active:scale-95 disabled:opacity-50"
+            title="Actualizar lista de equipos"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-brand-400' : ''}`} />
+            <span>Actualizar</span>
+          </button>
+        </div>
       </div>
 
       {/* Contenido de la tabla */}
@@ -68,180 +120,216 @@ export default function DeviceTable({
             <Monitor className="w-6 h-6" />
           </div>
           <h3 className="text-sm font-semibold text-white mb-1">
-            No hay computadoras registradas aún
+            No hay equipos registrados en este laboratorio
           </h3>
           <p className="text-xs text-foreground-muted max-w-md mx-auto mb-4">
-            Ejecuta el archivo <code className="text-brand-400 bg-surface-elevated px-1.5 py-0.5 rounded">agent.bat</code> en cualquier computadora de tu red para que aparezca aquí automáticamente.
+            Ejecuta el archivo <code className="text-brand-400 bg-surface-elevated px-1.5 py-0.5 rounded font-mono">agent.bat</code> en cualquier computadora del Campus Villa para que aparezca aquí automáticamente.
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-surface-elevated/60 text-foreground-muted uppercase font-medium tracking-wider border-b border-border">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full text-left text-xs table-auto">
+            {/* Cabeceras limpias sin iconos de ayuda ni signos de interrogación */}
+            <thead className="bg-surface-elevated/80 text-foreground-muted uppercase font-semibold tracking-wider border-b border-border text-[11px]">
               <tr>
-                <th className="py-3 px-4 w-10 text-center">
-                  <button
-                    onClick={onSelectAll}
-                    className="p-1 hover:text-white transition"
-                    title={allSelected ? 'Deseleccionar todas' : 'Seleccionar todas'}
-                  >
-                    {allSelected ? (
-                      <CheckSquare className="w-4 h-4 text-brand-400" />
-                    ) : someSelected ? (
-                      <div className="w-4 h-4 rounded bg-brand-400/30 border border-brand-400 flex items-center justify-center">
-                        <div className="w-2 h-0.5 bg-brand-400" />
-                      </div>
-                    ) : (
-                      <Square className="w-4 h-4 text-foreground-subtle" />
-                    )}
-                  </button>
+                {/* Checkbox de página */}
+                <th className="py-3.5 px-3 w-10 text-center align-middle">
+                  <div className="flex items-center justify-center">
+                    <button
+                      onClick={handleSelectPage}
+                      className="p-1 hover:text-white transition cursor-pointer"
+                      title={allVisibleSelected ? 'Deseleccionar página' : 'Seleccionar página'}
+                    >
+                      {allVisibleSelected ? (
+                        <CheckSquare className="w-4 h-4 text-brand-400" />
+                      ) : someVisibleSelected ? (
+                        <div className="w-4 h-4 rounded bg-brand-400/30 border border-brand-400 flex items-center justify-center">
+                          <div className="w-2 h-0.5 bg-brand-400" />
+                        </div>
+                      ) : (
+                        <Square className="w-4 h-4 text-foreground-subtle" />
+                      )}
+                    </button>
+                  </div>
                 </th>
-                <th className="py-3 px-4">Nombre del equipo</th>
-                <th className="py-3 px-4">Dirección en red</th>
-                <th className="py-3 px-4">Estado</th>
-                <th className="py-3 px-4">Reglas de navegación aplicada</th>
-                <th className="py-3 px-4">Última vez visto</th>
-                <th className="py-3 px-4 text-right">Acciones</th>
+
+                {/* 1. ESTADO */}
+                <th className="py-3.5 px-3 w-16 text-center align-middle">
+                  <span>ESTADO</span>
+                </th>
+
+                {/* 2. HOST */}
+                <th className="py-3.5 px-4 min-w-[160px] align-middle">
+                  <span>HOST</span>
+                </th>
+
+                {/* 3. IP */}
+                <th className="py-3.5 px-3 w-28 whitespace-nowrap align-middle">
+                  <span>IP</span>
+                </th>
+
+                {/* 4. REGLAS DE NAVEGACIÓN */}
+                <th className="py-3.5 px-4 min-w-[200px] align-middle">
+                  <span>REGLAS DE NAVEGACIÓN</span>
+                </th>
+
+                {/* 5. ÚLTIMO PULSO */}
+                <th className="py-3.5 px-4 min-w-[140px] align-middle">
+                  <span>ÚLTIMO PULSO</span>
+                </th>
+
+                {/* 6. ACCIÓN ELIMINAR */}
+                <th className="py-3.5 px-3 w-12 text-center align-middle">
+                  <span className="sr-only">Acciones</span>
+                </th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-border/60">
-              {devices.map((device) => {
+              {paginatedDevices.map((device) => {
                 const isSelected = selectedHostnames.includes(device.hostname);
-                const hasRules = device.blockedUrls && device.blockedUrls.length > 0;
+                const policyMode = device.policyMode || 'block_list';
+                const blockedList = device.blockedUrls || [];
+                const allowedList = device.allowedUrls || [];
 
                 return (
                   <tr
                     key={device.hostname}
-                    className={`transition-colors hover:bg-surface-elevated/40 ${
-                      isSelected ? 'bg-brand-500/5' : ''
+                    onClick={() => onToggleSelect(device.hostname)}
+                    className={`transition-colors cursor-pointer select-none ${
+                      isSelected ? 'bg-brand-500/15 hover:bg-brand-500/20' : 'hover:bg-surface-elevated/60'
                     }`}
                   >
                     {/* Checkbox de selección */}
-                    <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => onToggleSelect(device.hostname)}
-                        className="p-1 hover:text-white transition"
-                      >
-                        {isSelected ? (
-                          <CheckSquare className="w-4 h-4 text-brand-400" />
-                        ) : (
-                          <Square className="w-4 h-4 text-foreground-subtle" />
-                        )}
-                      </button>
-                    </td>
-
-                    {/* Nombre del equipo */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-1.5 rounded-lg bg-surface-elevated border border-border">
-                          {getDeviceIcon(device.hostname, device.os)}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-white text-sm">
-                            {device.hostname}
-                          </div>
-                          <div className="text-[11px] text-foreground-subtle">
-                            {device.os || 'Windows'}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Dirección en red (IP) */}
-                    <td className="py-3.5 px-4">
-                      <span className="font-mono text-foreground-muted bg-surface-elevated px-2 py-0.5 rounded text-[11px] border border-border">
-                        {device.ip}
-                      </span>
-                    </td>
-
-                    {/* Estado de conexión en lenguaje natural */}
-                    <td className="py-3.5 px-4">
-                      <div className="inline-flex items-center gap-1.5">
-                        <span className="relative flex h-2 w-2">
-                          {device.isOnline && (
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          )}
-                          <span
-                            className={`relative inline-flex rounded-full h-2 w-2 ${
-                              device.isOnline ? 'bg-emerald-500' : 'bg-slate-500'
-                            }`}
-                          ></span>
-                        </span>
-                        <span
-                          className={`text-xs font-medium ${
-                            device.isOnline ? 'text-emerald-400' : 'text-foreground-subtle'
-                          }`}
+                    <td className="py-3.5 px-3 text-center align-middle">
+                      <div className="flex items-center justify-center">
+                        <div
+                          className="p-1 pointer-events-none transition"
+                          title={isSelected ? 'Deseleccionar equipo' : 'Seleccionar equipo'}
                         >
-                          {device.isOnline ? 'Conectado' : 'Desconectado'}
-                        </span>
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-brand-400" />
+                          ) : (
+                            <Square className="w-4 h-4 text-foreground-subtle" />
+                          )}
+                        </div>
                       </div>
                     </td>
 
-                    {/* Páginas bloqueadas / Reglas aplicadas */}
-                    <td className="py-3.5 px-4">
-                      {hasRules ? (
-                        <div className="flex items-center gap-1.5 flex-wrap max-w-md">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-400 font-semibold text-[11px]">
-                            <ShieldAlert className="w-3 h-3" />
-                            {device.blockedUrls.length}{' '}
-                            {device.blockedUrls.length === 1 ? 'bloqueada' : 'bloqueadas'}
-                          </span>
-                          {device.blockedUrls.slice(0, 3).map((url, i) => (
-                            <span
-                              key={i}
-                              className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border text-[11px] text-foreground-muted truncate max-w-[120px]"
-                              title={url}
+                    {/* 1. ESTADO: Punto animado ampliado centrado verticalmente */}
+                    <td className="py-3.5 px-3 text-center align-middle">
+                      <div className="flex items-center justify-center">
+                        <div className="inline-flex items-center justify-center p-1.5 rounded-full bg-surface-elevated border border-border/80 shadow-inner">
+                          {device.isOnline ? (
+                            <span 
+                              className="relative flex h-3.5 w-3.5"
+                              title="Equipo en línea (Conectado y sincronizando)"
                             >
-                              {url}
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80"></span>
+                              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 shadow-md shadow-emerald-500/60"></span>
                             </span>
-                          ))}
-                          {device.blockedUrls.length > 3 && (
-                            <span className="text-[11px] text-foreground-subtle">
-                              +{device.blockedUrls.length - 3} más
-                            </span>
+                          ) : (
+                            <span 
+                              className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 shadow-md shadow-rose-500/40"
+                              title="Equipo inactivo (Sin respuesta en los últimos 90 segundos)"
+                            ></span>
                           )}
                         </div>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-emerald-400/90 text-xs">
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          <span>Navegación libre</span>
+                      </div>
+                    </td>
+
+                    {/* 2. HOST: Nombre limpio sin icono a la izquierda */}
+                    <td className="py-3.5 px-4 align-middle">
+                      <div className="flex flex-col justify-center">
+                        <span className="font-bold text-white text-sm tracking-wide">
+                          {device.hostname}
                         </span>
-                      )}
+                        <span className="text-[11px] text-foreground-subtle tracking-normal">
+                          {device.os || 'Windows 11'}
+                        </span>
+                      </div>
                     </td>
 
-                    {/* Última vez visto */}
-                    <td className="py-3.5 px-4 text-foreground-muted">
-                      {formatRelativeTime(device.lastSeen)}
+                    {/* 3. IP */}
+                    <td className="py-3.5 px-3 whitespace-nowrap align-middle">
+                      <div className="flex items-center">
+                        <span className="font-mono text-xs text-foreground bg-surface-elevated px-2.5 py-1 rounded-md border border-border">
+                          {device.ip}
+                        </span>
+                      </div>
                     </td>
 
-                    {/* Acciones por equipo */}
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => onOpenEditRules(device)}
-                          className="p-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground-muted hover:text-brand-400 transition"
-                          title="Gestionar reglas de este equipo"
+                    {/* 4. REGLAS */}
+                    <td className="py-3.5 px-4 align-middle">
+                      <div className="flex items-center">
+                        {policyMode === 'block_all' ? (
+                          <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 font-semibold">
+                            <Ban className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                            <span>Bloquear todo</span>
+                            <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-52 p-2 bg-slate-900 border border-slate-700 text-[11px] text-rose-200 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50">
+                              Toda navegación web está inhabilitada en este equipo.
+                            </span>
+                          </div>
+                        ) : policyMode === 'allow_list' ? (
+                          <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span>Permitir lista ({allowedList.length})</span>
+                            <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-64 p-2.5 bg-slate-900 border border-slate-700 text-[11px] text-emerald-100 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50">
+                              <strong className="block text-white mb-1 border-b border-slate-800 pb-1">Sitios Autorizados:</strong>
+                              {allowedList.length > 0 ? (
+                                <span className="break-words leading-relaxed">{allowedList.join(', ')}</span>
+                              ) : (
+                                <span className="italic text-slate-400">Sin sitios definidos (bloqueo total)</span>
+                              )}
+                            </span>
+                          </div>
+                        ) : policyMode === 'block_list' && blockedList.length > 0 ? (
+                          <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 font-semibold">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>Bloquear lista ({blockedList.length})</span>
+                            <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-64 p-2.5 bg-slate-900 border border-slate-700 text-[11px] text-amber-100 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50">
+                              <strong className="block text-white mb-1 border-b border-slate-800 pb-1">Sitios Restringidos:</strong>
+                              <span className="break-words leading-relaxed">{blockedList.join(', ')}</span>
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-400 font-medium">
+                            <Globe className="w-3.5 h-3.5" />
+                            <span>Navegación libre</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 5. ÚLTIMO PULSO */}
+                    <td className="py-3.5 px-4 whitespace-nowrap align-middle">
+                      <div className="flex items-center">
+                        <span
+                          className="text-foreground-muted text-xs"
+                          title={device.lastSeen ? `Última sincronización: ${device.lastSeen}` : ''}
                         >
-                          <SlidersHorizontal className="w-3.5 h-3.5" />
-                        </button>
+                          {formatRelativeTime(device.lastSeen)}
+                        </span>
+                      </div>
+                    </td>
 
-                        {hasRules && (
+                    {/* 6. BOTÓN ELIMINAR INDIVIDUAL */}
+                    <td className="py-3.5 px-3 text-center align-middle">
+                      <div className="flex items-center justify-center">
+                        {onDeleteDevice && (
                           <button
-                            onClick={() => onUnblockSingle(device.hostname)}
-                            className="p-1.5 rounded-lg bg-surface-elevated hover:bg-emerald-500/20 border border-border text-foreground-muted hover:text-emerald-400 transition"
-                            title="Quitar restricciones a este equipo"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteDevice(device.hostname);
+                            }}
+                            disabled={isLoading}
+                            className="p-1.5 rounded-lg text-foreground-subtle hover:text-rose-400 hover:bg-rose-500/10 transition active:scale-95 cursor-pointer"
+                            title={`Eliminar ${device.hostname} del registro`}
                           >
-                            <Unlock className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-
-                        <button
-                          onClick={() => onDeleteDevice(device.hostname)}
-                          className="p-1.5 rounded-lg bg-surface-elevated hover:bg-rose-500/20 border border-border text-foreground-muted hover:text-rose-400 transition"
-                          title="Eliminar este equipo del panel"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -251,6 +339,71 @@ export default function DeviceTable({
           </table>
         </div>
       )}
+
+      {/* PIE DE PÁGINA DE LA TABLA: Componentes de métricas (Hero) + Paginación (Máximo 50 por página) */}
+      <div className="p-4 md:px-5 border-t border-border bg-surface-elevated/30 flex flex-col md:flex-row items-center justify-between gap-4 mt-auto">
+        {/* Métricas resumidas de Hero */}
+        <div className="flex flex-wrap items-center gap-2 text-xs w-full md:w-auto">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="font-semibold text-white">{totalOnline}</span>
+            <span className="text-foreground-muted">en línea</span>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+            <Monitor className="w-3.5 h-3.5 text-brand-400" />
+            <span className="font-semibold text-white">{devices.length}</span>
+            <span className="text-foreground-muted">registrados</span>
+          </div>
+
+          {pavilionsCount > 0 && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+              <Building2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="font-semibold text-white">{pavilionsCount}</span>
+              <span className="text-foreground-muted">pabellones</span>
+            </div>
+          )}
+
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-semibold text-white">{totalRulesCount}</span>
+            <span className="text-foreground-muted">reglas</span>
+          </div>
+        </div>
+
+        {/* Paginación (Máx 50 por página) */}
+        {devices.length > 0 && (
+          <div className="flex items-center gap-3 self-end md:self-auto text-xs">
+            <span className="text-foreground-muted">
+              Mostrando <strong className="text-white">{startIndex + 1}</strong> - <strong className="text-white">{endIndex}</strong> de <strong className="text-white">{devices.length}</strong>
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1 || isLoading}
+                className="p-1.5 rounded-lg bg-surface hover:bg-surface-highlight border border-border text-foreground hover:text-white transition disabled:opacity-40 disabled:pointer-events-none"
+                title="Página anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <span className="px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground font-medium">
+                {currentPage} / {totalPages}
+              </span>
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages || isLoading}
+                className="p-1.5 rounded-lg bg-surface hover:bg-surface-highlight border border-border text-foreground hover:text-white transition disabled:opacity-40 disabled:pointer-events-none"
+                title="Página siguiente"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

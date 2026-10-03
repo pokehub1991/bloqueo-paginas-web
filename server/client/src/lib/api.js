@@ -64,10 +64,10 @@ export const api = {
     return request('/devices');
   },
 
-  blockUrls: async (hostnames, urls, mode = 'replace') => {
+  blockUrls: async (hostnames, urls, mode = 'add', policyMode, ruleType) => {
     return request('/devices/block', {
       method: 'POST',
-      body: JSON.stringify({ hostnames, urls, mode })
+      body: JSON.stringify({ hostnames, urls, mode, policyMode, ruleType })
     });
   },
 
@@ -78,9 +78,37 @@ export const api = {
     });
   },
 
+  removeRuleUrl: async (hostnames, url, policyMode) => {
+    return request('/devices/rules/remove', {
+      method: 'POST',
+      body: JSON.stringify({ hostnames, url, policyMode })
+    });
+  },
+
+  updateRuleUrl: async (hostnames, oldUrl, newUrl, policyMode) => {
+    return request('/devices/rules/update', {
+      method: 'POST',
+      body: JSON.stringify({ hostnames, oldUrl, newUrl, policyMode })
+    });
+  },
+
   deleteDevice: async (hostname) => {
     return request(`/devices/${encodeURIComponent(hostname)}`, {
       method: 'DELETE'
+    });
+  },
+
+  deleteBulkDevices: async (hostnames) => {
+    return request('/devices/delete-bulk', {
+      method: 'POST',
+      body: JSON.stringify({ hostnames })
+    });
+  },
+
+  deleteLaboratory: async (labCode) => {
+    return request('/devices/delete-lab', {
+      method: 'POST',
+      body: JSON.stringify({ labCode })
     });
   },
 
