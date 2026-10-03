@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -15,9 +14,11 @@ const DB_PATH = path.join(DATA_DIR, 'web_blocker.sqlite');
 
 let db;
 try {
-  db = new DatabaseSync(DB_PATH);
-  
-  // Helpers de compatibilidad para transaction y pragma
+  // Intentar primero con el módulo nativo de Node.js 22.5+ (node:sqlite)
+  const sqlite = await import('node:sqlite');
+  db = new sqlite.DatabaseSync(DB_PATH);
+
+  // Helpers de compatibilidad para node:sqlite
   db.pragma = function(pragmaStr) {
     db.exec(`PRAGMA ${pragmaStr};`);
   };
@@ -37,10 +38,18 @@ try {
   };
 
   db.pragma('journal_mode = WAL');
-  console.log(`[Base de Datos] SQLite nativo conectado exitosamente en: ${DB_PATH}`);
-} catch (error) {
-  console.error(`[Base de Datos] Error al abrir SQLite:`, error.message);
-  throw error;
+  console.log(`[Base de Datos] SQLite nativo (node:sqlite) conectado en: ${DB_PATH}`);
+} catch (nativeErr) {
+  // Fallback transparente para Node.js 20 o entornos con better-sqlite3
+  try {
+    const { default: Database } = await import('better-sqlite3');
+    db = new Database(DB_PATH);
+    db.pragma('journal_mode = WAL');
+    console.log(`[Base de Datos] SQLite (better-sqlite3) conectado en: ${DB_PATH}`);
+  } catch (betterErr) {
+    console.error('[Base de Datos] Error al abrir SQLite:', betterErr.message);
+    throw betterErr;
+  }
 }
 
 // Inicializar tablas

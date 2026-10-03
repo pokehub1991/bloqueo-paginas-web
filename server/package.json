@@ -9,10 +9,16 @@
     "dev": "node --watch src/index.js",
     "build:client": "cd client && npm install && npm run build"
   },
-  "keywords": ["web-blocker", "enterprise-policies", "windows-management", "dashboard"],
+  "keywords": [
+    "web-blocker",
+    "enterprise-policies",
+    "windows-management",
+    "dashboard"
+  ],
   "author": "Antigravity Systems",
   "license": "MIT",
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2"
