@@ -67,7 +67,7 @@ function Write-Log {
 function Get-IniConfig {
     param([string]$FilePath)
     $config = @{
-        ServerUrl = "http://localhost:4000"
+        ServerUrl = "http://10.142.240.190:4000"
         IntervaloSegundos = 30
         TiempoEsperaSegundos = 10
         BloquearChrome = 1
@@ -93,7 +93,7 @@ function Get-IniConfig {
             }
         }
     } else {
-        Write-Log "No se encontro config.ini. Usando valores predeterminados (http://localhost:4000)." "WARN"
+        Write-Log "No se encontro config.ini. Usando valores predeterminados (http://10.142.240.190:4000)." "WARN"
     }
 
     return $config

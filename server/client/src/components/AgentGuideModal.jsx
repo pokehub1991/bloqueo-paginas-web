@@ -12,7 +12,7 @@ export default function AgentGuideModal({
 
   if (!isOpen) return null;
 
-  const serverUrl = systemInfo.recommendedUrl || (serverIp ? `http://${serverIp}:${port}` : 'http://192.168.1.5:4000');
+  const serverUrl = systemInfo.recommendedUrl || (serverIp ? `http://${serverIp}:${port}` : 'http://10.142.240.190:4000');
   const configLine = `ServerUrl = ${serverUrl}`;
 
   const handleCopy = () => {

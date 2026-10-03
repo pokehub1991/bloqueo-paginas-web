@@ -555,7 +555,7 @@ export default function App() {
       <AgentGuideModal
         isOpen={showAgentGuide}
         onClose={() => setShowAgentGuide(false)}
-        serverIp={systemInfo.localIps?.[0] || '192.168.1.5'}
+        serverIp={systemInfo.localIps?.[0] || '10.142.240.190'}
         port={systemInfo.port || 4000}
       />
 
