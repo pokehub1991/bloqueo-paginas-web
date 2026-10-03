@@ -1,0 +1,21 @@
+{
+  "name": "web-blocker-server",
+  "version": "1.0.0",
+  "description": "Servidor centralizado y API para gestión de directivas de bloqueo web en Windows",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "build:client": "cd client && npm install && npm run build"
+  },
+  "keywords": ["web-blocker", "enterprise-policies", "windows-management", "dashboard"],
+  "author": "Antigravity Systems",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
