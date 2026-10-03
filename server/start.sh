@@ -7,6 +7,9 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
+# Puerto del Dashboard (por defecto 4000 para no chocar con el puerto 3000)
+export PORT="${PORT:-4000}"
+
 echo "=============================================================="
 echo "  INICIANDO SERVIDOR CENTRAL DE GESTION DE BLOQUEO WEB"
 echo "=============================================================="

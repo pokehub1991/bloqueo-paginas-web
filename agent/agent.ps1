@@ -67,7 +67,7 @@ function Write-Log {
 function Get-IniConfig {
     param([string]$FilePath)
     $config = @{
-        ServerUrl = "http://localhost:3000"
+        ServerUrl = "http://localhost:4000"
         IntervaloSegundos = 30
         TiempoEsperaSegundos = 10
         BloquearChrome = 1
@@ -93,7 +93,7 @@ function Get-IniConfig {
             }
         }
     } else {
-        Write-Log "No se encontro config.ini. Usando valores predeterminados (http://localhost:3000)." "WARN"
+        Write-Log "No se encontro config.ini. Usando valores predeterminados (http://localhost:4000)." "WARN"
     }
 
     return $config
@@ -238,12 +238,15 @@ function Apply-BrowserPolicies {
             "localhost",
             "127.0.0.1",
             "http://*:3000*",
-            "https://*:3000*"
+            "https://*:3000*",
+            "http://*:4000*",
+            "https://*:4000*"
         )
         $essentialAllowFirefox = @(
             "*://localhost/*",
             "*://127.0.0.1/*",
-            "*://*:3000/*"
+            "*://*:3000/*",
+            "*://*:4000/*"
         )
         if ($Config.ServerUrl) {
             try {

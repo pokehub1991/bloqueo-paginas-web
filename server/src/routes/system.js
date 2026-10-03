@@ -5,7 +5,7 @@ const router = Router();
 
 router.get('/info', (req, res) => {
   const ips = getLocalIpAddresses();
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 4000;
 
   return res.json({
     lanIps: ips,

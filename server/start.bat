@@ -21,6 +21,9 @@ if %errorlevel% neq 0 (
 :: Cambiar al directorio del servidor
 cd /d "%~dp0"
 
+:: Configuración del puerto del Dashboard (cámbialo si necesitas otro puerto)
+if "%PORT%"=="" set PORT=4000
+
 :: 2. Instalar dependencias del backend si no existen
 if not exist "node_modules\" (
     echo [1/3] Instalando dependencias del servidor...

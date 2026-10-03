@@ -556,7 +556,7 @@ export default function App() {
         isOpen={showAgentGuide}
         onClose={() => setShowAgentGuide(false)}
         serverIp={systemInfo.localIps?.[0] || '192.168.1.5'}
-        port={systemInfo.port || 3000}
+        port={systemInfo.port || 4000}
       />
 
       {/* Modal de Login si no está autenticado */}
