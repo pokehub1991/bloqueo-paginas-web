@@ -54,14 +54,14 @@ export default function PavilionSelector({
         </div>
 
         {/* Contador de equipos */}
-        <div className="flex items-center gap-2 text-xs self-start sm:self-auto px-3 py-1.5 rounded-xl bg-surface-elevated border border-border">
+        <div className="flex items-center gap-2 text-xs self-start sm:self-auto px-3 py-1.5 rounded-xl bg-surface-elevated">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="font-semibold text-white">{totalOnline}</span>
           <span className="text-foreground-muted">de {totalDevices} equipos en línea</span>
         </div>
       </div>
 
-      {/* NIVEL 1: PABELLONES (Chips Modernos) */}
+      {/* NIVEL 1: PABELLONES (Chips Minimalistas) */}
       <div className="flex flex-wrap items-center gap-2">
         {OFFICIAL_PAVILIONS.map((pab) => {
           const isSelected = selectedPavilion === pab.code;
@@ -74,21 +74,21 @@ export default function PavilionSelector({
                 onSelectPavilion(pab.code);
                 onSelectLab('ALL'); // Reset lab selection when switching pavilion
               }}
-              className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition active:scale-95 border ${
+              className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition active:scale-95 ${
                 isSelected
-                  ? 'bg-brand-500/20 border-brand-500 text-white shadow-lg shadow-brand-500/20 ring-1 ring-brand-500'
-                  : 'bg-surface-elevated hover:bg-surface-highlight border-border text-foreground-muted hover:text-white'
+                  ? 'bg-brand-500/20 text-white shadow-sm ring-1 ring-brand-500/60'
+                  : 'bg-surface-elevated hover:bg-surface-highlight text-foreground-muted hover:text-white'
               }`}
             >
               {pab.code === 'ALL' ? (
                 <Layers className="w-4 h-4 text-brand-400" />
               ) : pab.code === 'Sin asignar' ? (
-                <span className="w-5 h-5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center text-[10px] font-bold">
+                <span className="w-5 h-5 rounded-lg bg-surface-highlight text-foreground-muted flex items-center justify-center text-[10px] font-bold">
                   ?
                 </span>
               ) : (
                 <span className={`w-5 h-5 rounded-lg flex items-center justify-center text-xs font-bold ${
-                  isSelected ? 'bg-brand-500 text-white' : 'bg-slate-800 text-brand-400 border border-slate-700'
+                  isSelected ? 'bg-brand-500 text-white shadow-sm' : 'bg-surface-highlight text-brand-400'
                 }`}>
                   {pab.code}
                 </span>
@@ -96,9 +96,9 @@ export default function PavilionSelector({
 
               <span>{pab.label}</span>
 
-              {/* Conteo de equipos */}
-              <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
-                isSelected ? 'bg-brand-500 text-white' : 'bg-slate-800 text-slate-300'
+              {/* Conteo de equipos (Minimalista, sin borde blanco) */}
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold tabular-nums ${
+                isSelected ? 'bg-brand-500 text-white' : 'bg-surface-highlight text-foreground-muted'
               }`}>
                 {stats.deviceCount}
               </span>
@@ -118,10 +118,10 @@ export default function PavilionSelector({
             {/* Chip Todos los labs */}
             <button
               onClick={() => onSelectLab('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 border ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 ${
                 selectedLab === 'ALL'
-                  ? 'bg-slate-700 border-slate-500 text-white font-bold ring-1 ring-slate-400'
-                  : 'bg-surface-elevated hover:bg-surface-highlight border-border text-foreground-muted hover:text-white'
+                  ? 'bg-brand-500/20 text-brand-300 font-bold ring-1 ring-brand-500/50'
+                  : 'bg-surface-elevated hover:bg-surface-highlight text-foreground-muted hover:text-white'
               }`}
             >
               Todos los laboratorios
@@ -134,14 +134,14 @@ export default function PavilionSelector({
                 <div key={lab.code} className="inline-flex items-center">
                   <button
                     onClick={() => onSelectLab(lab.code)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-xs font-medium transition border ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-xs font-medium transition ${
                       isLabSelected
-                        ? 'bg-brand-500/25 border-brand-500 text-white font-bold'
-                        : 'bg-surface-elevated hover:bg-surface-highlight border-border text-foreground-muted hover:text-white'
+                        ? 'bg-brand-500/25 text-white font-bold'
+                        : 'bg-surface-elevated hover:bg-surface-highlight text-foreground-muted hover:text-white'
                     }`}
                   >
                     <span>{lab.code}</span>
-                    <span className="text-[10px] px-1 rounded bg-black/30 text-brand-300">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/40 text-brand-300 font-semibold tabular-nums">
                       {lab.deviceCount} eq.
                     </span>
                   </button>
@@ -149,10 +149,10 @@ export default function PavilionSelector({
                   {/* Botón rápido: Seleccionar todo este laboratorio */}
                   <button
                     onClick={() => onSelectWholeLab(lab.code)}
-                    className={`px-2 py-1.5 rounded-r-lg border border-l-0 text-xs transition active:scale-95 flex items-center justify-center ${
+                    className={`px-2 py-1.5 rounded-r-lg text-xs transition active:scale-95 flex items-center justify-center ${
                       isLabSelected
-                        ? 'bg-brand-500/40 border-brand-500 text-white hover:bg-brand-500/60'
-                        : 'bg-surface-elevated hover:bg-brand-500/20 border-border text-foreground-subtle hover:text-brand-300'
+                        ? 'bg-brand-500/40 text-white hover:bg-brand-500/60'
+                        : 'bg-surface-elevated hover:bg-brand-500/20 text-foreground-subtle hover:text-brand-300'
                     }`}
                     title={`Marcar todos los ${lab.deviceCount} equipos del laboratorio ${lab.code}`}
                   >

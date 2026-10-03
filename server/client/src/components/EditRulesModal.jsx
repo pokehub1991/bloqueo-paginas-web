@@ -156,11 +156,11 @@ export default function EditRulesModal({
               onClick={() => setPolicyMode('none')}
               className={`p-2.5 rounded-xl border cursor-pointer transition flex items-center gap-2 ${
                 policyMode === 'none'
-                  ? 'bg-blue-500/15 border-blue-500 text-blue-300 ring-1 ring-blue-500'
+                  ? 'bg-sky-500/15 border-sky-500 text-sky-300 ring-1 ring-sky-500'
                   : 'bg-surface-elevated hover:bg-surface-highlight border-border text-foreground-muted'
               }`}
             >
-              <Globe className="w-4 h-4 text-blue-400 shrink-0" />
+              <Globe className="w-4 h-4 text-sky-400 shrink-0" />
               <div>
                 <div className="font-semibold text-white">Navegación libre</div>
                 <div className="text-[10px] opacity-75">Sin restricciones</div>

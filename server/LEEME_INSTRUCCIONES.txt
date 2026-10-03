@@ -1,0 +1,27 @@
+=============================================================
+           UPC NETSHIELD - SERVIDOR Y DASHBOARD CENTRAL
+=============================================================
+
+INSTRUCCIONES PARA EJECUTAR EN WINDOWS SERVER:
+
+1. Asegúrate de tener instalado Node.js (versión 20 o 22 recomendada).
+   Descarga oficial: https://nodejs.org/
+
+2. Para iniciar el servidor y dashboard, simplemente haz DOBLE CLIC en:
+   
+   start.bat
+   
+   (O en iniciar_servidor.bat)
+
+3. El script automáticamente:
+   - Verificará Node.js.
+   - Instalará las dependencias si no existen (npm install).
+   - Iniciará el servicio en el puerto 5050.
+
+4. Abre tu navegador web en:
+   http://localhost:5050  (o la IP del servidor: http://10.142.240.190:5050)
+
+5. Credenciales por defecto:
+   Usuario:    admin
+   Contraseña: V1ll@uPc
+=============================================================

@@ -8,7 +8,9 @@ import {
   deleteDevice,
   deleteBulkDevices,
   deleteLaboratory,
-  seedDemoDevices
+  seedDemoDevices,
+  renameDevice,
+  importCsv
 } from '../controllers/devicesController.js';
 import { authMiddleware } from '../utils/auth.js';
 import { registerSseClient } from '../utils/sseManager.js';
@@ -26,6 +28,8 @@ router.post('/rules/update', authMiddleware, updateUrlOnDevices);
 router.post('/delete-bulk', authMiddleware, deleteBulkDevices);
 router.post('/delete-lab', authMiddleware, deleteLaboratory);
 router.delete('/:hostname', authMiddleware, deleteDevice);
+router.put('/:hostname/rename', authMiddleware, renameDevice);
+router.post('/import-csv', authMiddleware, importCsv);
 router.post('/seed-demo', authMiddleware, seedDemoDevices);
 
 export default router;

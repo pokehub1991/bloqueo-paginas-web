@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UPC NetShield</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Header Institucional -->
+  <header class="header">
+    <div class="logo-box">
+      <img src="icons/logo.png" alt="UPC" class="logo">
+      <div>
+        <h1 class="brand-title">UPC NetShield</h1>
+        <p class="brand-subtitle">Campus Villa · Control Académico</p>
+      </div>
+    </div>
+    <div class="status-indicator" id="statusBadge">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">En línea</span>
+    </div>
+  </header>
+
+  <!-- Contenido de Solo Lectura -->
+  <div class="content">
+    <!-- 1. Directiva Actual de Navegación -->
+    <div class="card-policy" id="policyCard">
+      <div class="policy-header">
+        <span class="label-caps">Directiva Activa</span>
+        <span class="policy-tag" id="policyBadge">Consultando...</span>
+      </div>
+      <div class="policy-info" id="policyDetail">
+        Consultando directiva con el servidor central...
+      </div>
+      <!-- Lista de URLs en modo solo lectura (chips compactos) -->
+      <div class="rules-preview" id="rulesPreview" style="display: none;">
+        <span class="rules-preview-title" id="rulesPreviewTitle">Sitios regulados:</span>
+        <div class="rules-chips-box" id="rulesChipsBox"></div>
+      </div>
+    </div>
+
+    <!-- 2. Información de la Estación (Solo Lectura) -->
+    <div class="info-group">
+      <div class="info-row">
+        <span class="info-label">Estación de trabajo:</span>
+        <span class="info-val font-mono" id="hostnameVal">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Dirección IP:</span>
+        <span class="info-val font-mono" id="ipValue">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Último pulso:</span>
+        <span class="info-val" id="lastSyncValue">--</span>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <span class="footer-brand"><span class="text-upc-red">UPC</span> · Universidad Peruana de Ciencias Aplicadas</span>
+    <span class="version">2026</span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

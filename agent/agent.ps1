@@ -1,10 +1,17 @@
 <#
 .SYNOPSIS
-    Agente de Gestión de Directivas de Navegación Web para Laboratorios de Cómputo Windows.
+    Agente de Gestión de Directivas y Bloqueo Web Instantáneo para Laboratorios de Cómputo Windows.
 .DESCRIPTION
     Se conecta al servidor central, registra la computadora e implementa
     las directivas de navegación (Bloquear Todo, Permitir Lista, Bloquear Lista o Navegación Libre)
-    en Chrome, Edge, Firefox y Opera utilizando las políticas de registro del sistema (Enterprise Policies).
+    de forma 100% INMEDIATA sin necesidad de cerrar o reiniciar los navegadores (Chrome, Edge, Firefox, Opera).
+    Utiliza una arquitectura multicapa:
+    1. Intercepción en el kernel de red y resolución OS (C:\Windows\System32\drivers\etc\hosts).
+    2. Reglas dinámicas de Windows Firewall para corte total inmediato (puertos 80, 443).
+    3. Desconexión de sockets TCP activos mediante SetTcpEntry para interrumpir descargas o streaming en curso.
+    4. Desactivación de QUIC y DoH (DNS sobre HTTPS) y forzado de DNS del sistema en navegadores Chromium.
+    5. Directivas de registro en HKLM, HKCU y todos los SIDs de usuarios activos (incluyendo perfil Alumnos).
+    6. Archivo enterprise policies.json para Mozilla Firefox.
 #>
 
 [CmdletBinding()]
@@ -27,13 +34,14 @@ if (-not $ConfigPath -or -not (Test-Path $ConfigPath)) {
 
 # Configurar salida UTF-8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$Host.UI.RawUI.WindowTitle = "UPC NetShield - Agente de Bloqueo Web"
+$Host.UI.RawUI.WindowTitle = "UPC NetShield - Agente de Bloqueo Web Instantaneo"
 
-# Definir notificador nativo de directivas de Windows (SendMessageTimeout WM_SETTINGCHANGE)
+# Definir notificadores nativos de Windows y control de sockets TCP (SetTcpEntry)
 try {
     Add-Type -TypeDefinition @"
     using System;
     using System.Runtime.InteropServices;
+
     public class PolicyNotifier {
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern IntPtr SendMessageTimeout(
@@ -43,6 +51,36 @@ try {
 
         [DllImport("userenv.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern bool RefreshPolicyEx(bool bMachine, int dwOptions);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MIB_TCPROW {
+        public uint dwState;
+        public uint dwLocalAddr;
+        public uint dwLocalPort;
+        public uint dwRemoteAddr;
+        public uint dwRemotePort;
+    }
+
+    public class NetworkHelper {
+        [DllImport("iphlpapi.dll", SetLastError = true)]
+        public static extern int SetTcpEntry(ref MIB_TCPROW pTcprow);
+
+        public const uint MIB_TCP_STATE_DELETE_TCB = 12;
+
+        public static bool CloseTcpConnection(uint localAddr, uint localPort, uint remoteAddr, uint remotePort) {
+            try {
+                MIB_TCPROW row = new MIB_TCPROW();
+                row.dwState = MIB_TCP_STATE_DELETE_TCB;
+                row.dwLocalAddr = localAddr;
+                row.dwLocalPort = localPort;
+                row.dwRemoteAddr = remoteAddr;
+                row.dwRemotePort = remotePort;
+                return SetTcpEntry(ref row) == 0;
+            } catch {
+                return false;
+            }
+        }
     }
 "@ -ErrorAction SilentlyContinue
 } catch {}
@@ -67,9 +105,9 @@ function Write-Log {
 function Get-IniConfig {
     param([string]$FilePath)
     $config = @{
-        ServerUrl = "http://10.142.240.190:4000"
-        IntervaloSegundos = 30
-        TiempoEsperaSegundos = 10
+        ServerUrl = "http://10.142.240.190:5050"
+        IntervaloSegundos = 2
+        TiempoEsperaSegundos = 6
         BloquearChrome = 1
         BloquearEdge = 1
         BloquearFirefox = 1
@@ -84,7 +122,7 @@ function Get-IniConfig {
                 $key = $parts[0].Trim()
                 $val = $parts[1].Trim()
                 if ($key -eq "ServerUrl") { $config.ServerUrl = $val }
-                if ($key -eq "IntervaloSegundos") { $config.IntervaloSegundos = [int]$val }
+                if ($key -eq "IntervaloSegundos") { $config.IntervaloSegundos = [Math]::Max(1, [int]$val) }
                 if ($key -eq "TiempoEsperaSegundos") { $config.TiempoEsperaSegundos = [int]$val }
                 if ($key -eq "BloquearChrome") { $config.BloquearChrome = [int]$val }
                 if ($key -eq "BloquearEdge") { $config.BloquearEdge = [int]$val }
@@ -93,7 +131,7 @@ function Get-IniConfig {
             }
         }
     } else {
-        Write-Log "No se encontro config.ini. Usando valores predeterminados (http://10.142.240.190:4000)." "WARN"
+        Write-Log "No se encontro config.ini. Usando valores predeterminados (http://10.142.240.190:5050)." "WARN"
     }
 
     return $config
@@ -109,9 +147,7 @@ function Get-LocalIpv4 {
             } | Select-Object -First 1
 
         if ($ipObj) { return $ipObj.IPAddress }
-    } catch {
-        # Fallback vía DNS si Get-NetIPAddress falla
-    }
+    } catch {}
 
     try {
         $dnsIps = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
@@ -126,43 +162,367 @@ function Get-LocalIpv4 {
     return "127.0.0.1"
 }
 
-# --- RUTAS DE DIRECTIVAS EN EL REGISTRO DE WINDOWS ---
+function Get-DomainFromUrl {
+    param([string]$Url)
+    if (-not $Url) { return "" }
+    $clean = $Url.Trim().ToLower()
+    $clean = $clean -replace "^[a-z0-9]+://", ""
+    $clean = $clean -replace "^\*://", ""
+    $clean = $clean -replace "^[*.]+", ""
+    if ($clean.Contains("/")) { $clean = $clean.Substring(0, $clean.IndexOf("/")) }
+    if ($clean.Contains("?")) { $clean = $clean.Substring(0, $clean.IndexOf("?")) }
+    if ($clean.Contains("#")) { $clean = $clean.Substring(0, $clean.IndexOf("#")) }
+    if ($clean -match "^([^:]+):\d+$") { $clean = $Matches[1] }
+    return $clean.Trim()
+}
+
+function Get-AllUserSids {
+    $sids = [System.Collections.Generic.List[string]]::new()
+    try {
+        $keys = Get-ChildItem Registry::HKEY_USERS -ErrorAction SilentlyContinue
+        foreach ($k in $keys) {
+            $name = $k.PSChildName
+            if ($name -match "^S-1-5-21-" -and $name -notmatch "_Classes$") {
+                $sids.Add($name)
+            }
+        }
+    } catch {}
+
+    try {
+        $profiles = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue
+        foreach ($p in $profiles) {
+            if ($p.ProfileImagePath -and $p.ProfileImagePath -like "*\Alumnos*") {
+                $sidStr = Split-Path -Leaf $p.PSPath
+                if ($sidStr -match "^S-1-5-21-" -and -not $sids.Contains($sidStr)) {
+                    $sids.Add($sidStr)
+                }
+            }
+        }
+    } catch {}
+
+    return @($sids | Sort-Object -Unique)
+}
+
+function Flush-NetworkCaches {
+    try {
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        ipconfig /flushdns 2>$null | Out-Null
+        netsh interface ip delete arpcache 2>$null | Out-Null
+        nbtstat -R 2>$null | Out-Null
+    } catch {}
+}
+
+# --- CAPA 1: INTERCEPCIÓN EN ARCHIVO HOSTS (EFECTO INMEDIATO SIN REINICIAR NAVEGADOR) ---
+
+function Update-HostsFile {
+    param(
+        [string]$PolicyMode = "block_list",
+        [string[]]$BlockedUrls = @()
+    )
+
+    $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
+    if (-not (Test-Path $hostsPath)) {
+        return
+    }
+
+    $markerStart = "# --- UPC_NETSHIELD_START ---"
+    $markerEnd = "# --- UPC_NETSHIELD_END ---"
+
+    try {
+        $currentLines = @(Get-Content -Path $hostsPath -Encoding ASCII -ErrorAction SilentlyContinue)
+        if (-not $currentLines -or $currentLines.Count -eq 0) {
+            $currentLines = @(Get-Content -Path $hostsPath -ErrorAction SilentlyContinue)
+        }
+
+        # Filtrar bloque existente
+        $cleanLines = [System.Collections.Generic.List[string]]::new()
+        $insideBlock = $false
+        foreach ($line in $currentLines) {
+            if ($line.Trim() -eq $markerStart) {
+                $insideBlock = $true
+                continue
+            }
+            if ($line.Trim() -eq $markerEnd) {
+                $insideBlock = $false
+                continue
+            }
+            if (-not $insideBlock) {
+                $cleanLines.Add($line)
+            }
+        }
+
+        $newManagedEntries = [System.Collections.Generic.List[string]]::new()
+
+        if ($PolicyMode -eq "block_list" -and $BlockedUrls -and $BlockedUrls.Count -gt 0) {
+            $domainsToBlock = [System.Collections.Generic.HashSet[string]]::new()
+
+            foreach ($u in $BlockedUrls) {
+                $dom = Get-DomainFromUrl -Url $u
+                if ($dom -and $dom -notmatch "^(localhost|127\.0\.0\.1|0\.0\.0\.0)$") {
+                    $domainsToBlock.Add($dom) | Out-Null
+                    if ($dom.StartsWith("www.")) {
+                        $rootDom = $dom.Substring(4)
+                        if ($rootDom) { $domainsToBlock.Add($rootDom) | Out-Null }
+                    } else {
+                        $domainsToBlock.Add("www.$dom") | Out-Null
+                    }
+                }
+            }
+
+            if ($domainsToBlock.Count -gt 0) {
+                $newManagedEntries.Add($markerStart)
+                $newManagedEntries.Add("# Bloqueo instantaneo administrado por UPC NetShield - No editar")
+                foreach ($d in ($domainsToBlock | Sort-Object)) {
+                    $newManagedEntries.Add("0.0.0.0 $d")
+                    $newManagedEntries.Add("::1 $d")
+                }
+                $newManagedEntries.Add($markerEnd)
+            }
+        }
+
+        $finalLines = [System.Collections.Generic.List[string]]::new($cleanLines)
+        if ($newManagedEntries.Count -gt 0) {
+            if ($finalLines.Count -gt 0 -and $finalLines[$finalLines.Count - 1].Trim() -ne "") {
+                $finalLines.Add("")
+            }
+            $finalLines.AddRange($newManagedEntries)
+        }
+
+        $finalContent = ($finalLines -join "`r`n") + "`r`n"
+        $currentFull = ($currentLines -join "`r`n") + "`r`n"
+
+        if ($finalContent.Trim() -ne $currentFull.Trim()) {
+            Set-ItemProperty -Path $hostsPath -Name Attributes -Value "Normal" -ErrorAction SilentlyContinue
+            [System.IO.File]::WriteAllText($hostsPath, $finalContent, [System.Text.Encoding]::ASCII)
+            Write-Log "Archivo hosts actualizado con directivas instantaneas de UPC NetShield." "SUCCESS"
+            Flush-NetworkCaches
+        }
+    } catch {
+        Write-Log "No se pudo actualizar el archivo hosts: $($_.Exception.Message)" "WARN"
+    }
+}
+
+# --- CAPA 2: REGLAS DE FIREWALL PARA CORTE TOTAL INMEDIATO (BLOCK_ALL) ---
+
+function Update-FirewallPolicy {
+    param(
+        [string]$PolicyMode = "block_list",
+        [string]$ServerUrl = ""
+    )
+
+    $ruleNameBlockAll = "UPC_NetShield_BlockAll"
+    $ruleNameAllowSrv = "UPC_NetShield_AllowServer"
+
+    try {
+        if ($PolicyMode -eq "block_all") {
+            # Regla de excepción para el servidor central (si usa puerto HTTP/HTTPS)
+            if ($ServerUrl) {
+                try {
+                    $srvHost = ([System.Uri]$ServerUrl).Host
+                    if ($srvHost -and $srvHost -notmatch "^(localhost|127\.0\.0\.1)$") {
+                        $existingAllow = netsh advfirewall firewall show rule name="$ruleNameAllowSrv" 2>$null
+                        if (-not ($existingAllow -match $ruleNameAllowSrv)) {
+                            netsh advfirewall firewall add rule name="$ruleNameAllowSrv" dir=out action=allow remoteip=$srvHost description="Permitir conexion de agente con servidor central UPC NetShield" 2>$null | Out-Null
+                        }
+                    }
+                } catch {}
+            }
+
+            # Regla de bloqueo total de puertos web 80 y 443 a nivel kernel
+            $existingBlock = netsh advfirewall firewall show rule name="$ruleNameBlockAll" 2>$null
+            if (-not ($existingBlock -match $ruleNameBlockAll)) {
+                netsh advfirewall firewall add rule name="$ruleNameBlockAll" dir=out action=block protocol=TCP remoteport=80,443 description="Bloqueo total web instantaneo por UPC NetShield" 2>$null | Out-Null
+                Write-Log "Regla de Firewall activada: Toda salida web (puertos 80, 443) bloqueada al instante." "WARN"
+            }
+        } else {
+            $existingBlock = netsh advfirewall firewall show rule name="$ruleNameBlockAll" 2>$null
+            if ($existingBlock -match $ruleNameBlockAll) {
+                netsh advfirewall firewall delete rule name="$ruleNameBlockAll" 2>$null | Out-Null
+                Write-Log "Regla de Firewall desactivada: Salida web restablecida." "INFO"
+            }
+        }
+    } catch {
+        Write-Log "Incidencia con regla de firewall: $($_.Exception.Message)" "WARN"
+    }
+}
+
+# --- CAPA 3: DESCONEXIÓN DE SOCKETS TCP ACTIVOS DE NAVEGADORES (SIN CERRAR PROCESO) ---
+
+function Sever-ActiveBrowserSockets {
+    param(
+        [string]$PolicyMode = "block_list",
+        [string[]]$BlockedUrls = @()
+    )
+
+    try {
+        $browserProcesses = Get-Process -Name "chrome", "firefox", "msedge", "opera", "brave" -ErrorAction SilentlyContinue
+        if (-not $browserProcesses -or $browserProcesses.Count -eq 0) {
+            return
+        }
+
+        $pids = @($browserProcesses | Select-Object -ExpandProperty Id)
+        $tcpConns = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+            Where-Object { $pids -contains $_.OwningProcess }
+
+        if (-not $tcpConns -or $tcpConns.Count -eq 0) {
+            return
+        }
+
+        if ($PolicyMode -eq "block_all") {
+            foreach ($conn in $tcpConns) {
+                if ($conn.RemotePort -in @(80, 443)) {
+                    Close-SingleTcpConnection -Conn $conn
+                }
+            }
+        } elseif ($PolicyMode -eq "block_list" -and $BlockedUrls -and $BlockedUrls.Count -gt 0) {
+            $blockedIps = [System.Collections.Generic.HashSet[string]]::new()
+            foreach ($u in $BlockedUrls) {
+                $dom = Get-DomainFromUrl -Url $u
+                if ($dom) {
+                    try {
+                        $resolved = [System.Net.Dns]::GetHostAddresses($dom)
+                        foreach ($r in $resolved) {
+                            $blockedIps.Add($r.IPAddressToString) | Out-Null
+                        }
+                    } catch {}
+                }
+            }
+
+            if ($blockedIps.Count -gt 0) {
+                foreach ($conn in $tcpConns) {
+                    if ($blockedIps.Contains($conn.RemoteAddress)) {
+                        Close-SingleTcpConnection -Conn $conn
+                    }
+                }
+            }
+        }
+    } catch {}
+}
+
+function Close-SingleTcpConnection {
+    param($Conn)
+    try {
+        $localBytes = [System.Net.IPAddress]::Parse($Conn.LocalAddress).GetAddressBytes()
+        $remoteBytes = [System.Net.IPAddress]::Parse($Conn.RemoteAddress).GetAddressBytes()
+
+        if ($localBytes.Length -eq 4 -and $remoteBytes.Length -eq 4) {
+            $localUint = [System.BitConverter]::ToUInt32($localBytes, 0)
+            $remoteUint = [System.BitConverter]::ToUInt32($remoteBytes, 0)
+            $localPortNet = [uint32](([int]$Conn.LocalPort -band 0xFF) -shl 8 -bor ([int]$Conn.LocalPort -shr 8))
+            $remotePortNet = [uint32](([int]$Conn.RemotePort -band 0xFF) -shl 8 -bor ([int]$Conn.RemotePort -shr 8))
+
+            [NetworkHelper]::CloseTcpConnection($localUint, $localPortNet, $remoteUint, $remotePortNet) | Out-Null
+        }
+    } catch {}
+}
+
+# --- CAPA 4: ARCHIVO POLICIES.JSON ENTERPRISE PARA MOZILLA FIREFOX ---
+
+function Update-FirefoxPoliciesJson {
+    param(
+        [string]$PolicyMode = "block_list",
+        [string[]]$BlockedUrls,
+        [string[]]$AllowedUrls
+    )
+
+    $firefoxDirs = @(
+        "C:\Program Files\Mozilla Firefox",
+        "C:\Program Files (x86)\Mozilla Firefox"
+    )
+
+    foreach ($fxDir in $firefoxDirs) {
+        if (Test-Path $fxDir) {
+            try {
+                $distDir = Join-Path $fxDir "distribution"
+                if (-not (Test-Path $distDir)) {
+                    New-Item -Path $distDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
+                }
+
+                $policiesFile = Join-Path $distDir "policies.json"
+
+                $policyObj = @{
+                    policies = @{
+                        DNSOverHTTPS = @{
+                            Enabled = $false
+                        }
+                    }
+                }
+
+                if ($PolicyMode -eq "block_all") {
+                    $policyObj.policies["WebsiteFilter"] = @{
+                        Block = @("<all_urls>")
+                        Exceptions = @("*://localhost/*", "*://127.0.0.1/*", "*://*:5050/*")
+                    }
+                } elseif ($PolicyMode -eq "allow_list" -and $AllowedUrls -and $AllowedUrls.Count -gt 0) {
+                    $fxExceptions = @("*://localhost/*", "*://127.0.0.1/*", "*://*:5050/*")
+                    foreach ($u in $AllowedUrls) {
+                        $fxExceptions += "*://$u/*"
+                        $fxExceptions += "*://*.$u/*"
+                    }
+                    $policyObj.policies["WebsiteFilter"] = @{
+                        Block = @("<all_urls>")
+                        Exceptions = @($fxExceptions | Sort-Object -Unique)
+                    }
+                } elseif ($PolicyMode -eq "block_list" -and $BlockedUrls -and $BlockedUrls.Count -gt 0) {
+                    $fxBlocks = @()
+                    foreach ($u in $BlockedUrls) {
+                        $dom = Get-DomainFromUrl -Url $u
+                        if ($dom) {
+                            $fxBlocks += "*://$dom/*"
+                            $fxBlocks += "*://*.$dom/*"
+                        }
+                    }
+                    $policyObj.policies["WebsiteFilter"] = @{
+                        Block = @($fxBlocks | Sort-Object -Unique)
+                        Exceptions = @("*://localhost/*", "*://127.0.0.1/*", "*://*:5050/*")
+                    }
+                }
+
+                $jsonStr = $policyObj | ConvertTo-Json -Depth 5
+                [System.IO.File]::WriteAllText($policiesFile, $jsonStr, [System.Text.Encoding]::UTF8)
+            } catch {}
+        }
+    }
+}
+
+# --- CAPA 5: DIRECTIVAS DE REGISTRO EN HKLM, HKCU Y SIDS DE HKEY_USERS ---
+
 $BrowserRegistryTargets = @(
     @{
         Name = "Google Chrome"
-        BlocklistKey = "HKLM:\SOFTWARE\Policies\Google\Chrome\URLBlocklist"
-        AllowlistKey = "HKLM:\SOFTWARE\Policies\Google\Chrome\URLAllowlist"
-        UserBlocklist = "HKCU:\SOFTWARE\Policies\Google\Chrome\URLBlocklist"
-        UserAllowlist = "HKCU:\SOFTWARE\Policies\Google\Chrome\URLAllowlist"
+        SubKey = "SOFTWARE\Policies\Google\Chrome"
+        BlocklistSub = "SOFTWARE\Policies\Google\Chrome\URLBlocklist"
+        AllowlistSub = "SOFTWARE\Policies\Google\Chrome\URLAllowlist"
         WildcardValue = "*"
         EnabledSetting = "BloquearChrome"
+        IsChromium = $true
     },
     @{
         Name = "Microsoft Edge"
-        BlocklistKey = "HKLM:\SOFTWARE\Policies\Microsoft\Edge\URLBlocklist"
-        AllowlistKey = "HKLM:\SOFTWARE\Policies\Microsoft\Edge\URLAllowlist"
-        UserBlocklist = "HKCU:\SOFTWARE\Policies\Microsoft\Edge\URLBlocklist"
-        UserAllowlist = "HKCU:\SOFTWARE\Policies\Microsoft\Edge\URLAllowlist"
+        SubKey = "SOFTWARE\Policies\Microsoft\Edge"
+        BlocklistSub = "SOFTWARE\Policies\Microsoft\Edge\URLBlocklist"
+        AllowlistSub = "SOFTWARE\Policies\Microsoft\Edge\URLAllowlist"
         WildcardValue = "*"
         EnabledSetting = "BloquearEdge"
+        IsChromium = $true
     },
     @{
         Name = "Mozilla Firefox"
-        BlocklistKey = "HKLM:\SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter\Block"
-        AllowlistKey = "HKLM:\SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter\Exceptions"
-        UserBlocklist = "HKCU:\SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter\Block"
-        UserAllowlist = "HKCU:\SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter\Exceptions"
+        SubKey = "SOFTWARE\Policies\Mozilla\Firefox"
+        BlocklistSub = "SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter\Block"
+        AllowlistSub = "SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter\Exceptions"
         WildcardValue = "<all_urls>"
         EnabledSetting = "BloquearFirefox"
+        IsChromium = $false
     },
     @{
         Name = "Opera / Opera GX"
-        BlocklistKey = "HKLM:\SOFTWARE\Policies\Opera Software\Opera\URLBlocklist"
-        AllowlistKey = "HKLM:\SOFTWARE\Policies\Opera Software\Opera\URLAllowlist"
-        UserBlocklist = "HKCU:\SOFTWARE\Policies\Opera Software\Opera\URLBlocklist"
-        UserAllowlist = "HKCU:\SOFTWARE\Policies\Opera Software\Opera\URLAllowlist"
+        SubKey = "SOFTWARE\Policies\Opera Software\Opera"
+        BlocklistSub = "SOFTWARE\Policies\Opera Software\Opera\URLBlocklist"
+        AllowlistSub = "SOFTWARE\Policies\Opera Software\Opera\URLAllowlist"
         WildcardValue = "*"
         EnabledSetting = "BloquearOpera"
+        IsChromium = $true
     }
 )
 
@@ -192,7 +552,6 @@ function Set-RegistryStringList {
     }
 
     if (Test-Path $Path) {
-        # Limpiar entradas numéricas existentes
         try {
             $props = (Get-ItemProperty -Path $Path -ErrorAction SilentlyContinue).PSObject.Properties | 
                      Where-Object { $_.Name -notmatch "^PS" }
@@ -200,7 +559,6 @@ function Set-RegistryStringList {
                 Remove-ItemProperty -Path $Path -Name $p.Name -ErrorAction SilentlyContinue | Out-Null
             }
 
-            # Escribir nuevos valores
             if ($Values -and $Values.Count -gt 0) {
                 for ($i = 0; $i -lt $Values.Count; $i++) {
                     $valName = [string]($i + 1)
@@ -224,45 +582,57 @@ function Apply-BrowserPolicies {
 
     $policyChangedAny = $false
 
+    # Excepciones vitales que NUNCA deben bloquearse
+    $essentialAllowChromium = @(
+        "http://localhost:*",
+        "https://localhost:*",
+        "http://127.0.0.1:*",
+        "https://127.0.0.1*",
+        "localhost",
+        "127.0.0.1",
+        "http://*:5050*",
+        "https://*:5050*",
+        "http://*:3000*",
+        "https://*:3000*",
+        "http://*:4000*",
+        "https://*:4000*"
+    )
+    $essentialAllowFirefox = @(
+        "*://localhost/*",
+        "*://127.0.0.1/*",
+        "*://*:5050/*",
+        "*://*:3000/*",
+        "*://*:4000/*"
+    )
+
+    if ($Config.ServerUrl) {
+        try {
+            $srvUri = [System.Uri]$Config.ServerUrl
+            $srvHost = $srvUri.Host
+            $srvScheme = $srvUri.Scheme
+            $essentialAllowChromium += "${srvScheme}://${srvHost}:*"
+            $essentialAllowChromium += "${srvScheme}://${srvHost}"
+            $essentialAllowChromium += $srvHost
+            $essentialAllowFirefox += "*://${srvHost}/*"
+        } catch {}
+    }
+
+    $cleanEssentialChromium = @($essentialAllowChromium | Sort-Object -Unique)
+    $cleanEssentialFirefox = @($essentialAllowFirefox | Sort-Object -Unique)
+
+    # Identificar todas las raíces de registro: HKLM, HKCU y todos los SIDs de usuario (incluye Alumnos)
+    $allUserSids = Get-AllUserSids
+    $registryRoots = [System.Collections.Generic.List[string]]::new()
+    $registryRoots.Add("HKLM:")
+    $registryRoots.Add("HKCU:")
+    foreach ($sid in $allUserSids) {
+        $registryRoots.Add("Registry::HKEY_USERS\$sid")
+    }
+
     foreach ($browser in $BrowserRegistryTargets) {
         if ($Config[$browser.EnabledSetting] -eq 0) {
             continue
         }
-
-        # Excepciones vitales que NUNCA deben bloquearse (Consola de administración, localhost, intranet de UPC NetShield)
-        $essentialAllowChromium = @(
-            "http://localhost:*",
-            "https://localhost:*",
-            "http://127.0.0.1:*",
-            "https://127.0.0.1*",
-            "localhost",
-            "127.0.0.1",
-            "http://*:3000*",
-            "https://*:3000*",
-            "http://*:4000*",
-            "https://*:4000*"
-        )
-        $essentialAllowFirefox = @(
-            "*://localhost/*",
-            "*://127.0.0.1/*",
-            "*://*:3000/*",
-            "*://*:4000/*"
-        )
-        if ($Config.ServerUrl) {
-            try {
-                $srvUri = [System.Uri]$Config.ServerUrl
-                $srvHost = $srvUri.Host
-                $srvScheme = $srvUri.Scheme
-                $srvPort = $srvUri.Port
-                $essentialAllowChromium += "${srvScheme}://${srvHost}:*"
-                $essentialAllowChromium += "${srvScheme}://${srvHost}"
-                $essentialAllowChromium += $srvHost
-                $essentialAllowFirefox += "*://${srvHost}/*"
-            } catch {}
-        }
-
-        $cleanEssentialChromium = @($essentialAllowChromium | Sort-Object -Unique)
-        $cleanEssentialFirefox = @($essentialAllowFirefox | Sort-Object -Unique)
 
         # Calcular listas objetivo según el modo
         $targetBlockList = @()
@@ -270,46 +640,43 @@ function Apply-BrowserPolicies {
 
         switch ($PolicyMode) {
             "block_all" {
-                # Modo 1: Bloquear toda navegación externa excepto localhost y consola UPC NetShield
                 $targetBlockList = @($browser.WildcardValue)
-                $targetAllowList = if ($browser.Name -like "*Firefox*") { $cleanEssentialFirefox } else { $cleanEssentialChromium }
+                $targetAllowList = if ($browser.IsChromium) { $cleanEssentialChromium } else { $cleanEssentialFirefox }
             }
             "allow_list" {
-                # Modo 2: Permitir solo lista autorizada + localhost y consola UPC NetShield
                 $targetBlockList = @($browser.WildcardValue)
-                $baseAllow = if ($browser.Name -like "*Firefox*") { $cleanEssentialFirefox } else { $cleanEssentialChromium }
+                $baseAllow = if ($browser.IsChromium) { $cleanEssentialChromium } else { $cleanEssentialFirefox }
                 $targetAllowList = @($baseAllow + $normAllowed) | Sort-Object -Unique
             }
             "block_list" {
-                # Modo 3: Bloquear lista restringida protegiendo localhost
                 $targetBlockList = @($normBlocked | Where-Object { $_ -notmatch "(localhost|127\.0\.0\.1)" })
-                $targetAllowList = if ($browser.Name -like "*Firefox*") { $cleanEssentialFirefox } else { $cleanEssentialChromium }
+                $targetAllowList = if ($browser.IsChromium) { $cleanEssentialChromium } else { $cleanEssentialFirefox }
             }
             default {
-                # Modo libre
                 $targetBlockList = @()
                 $targetAllowList = @()
             }
         }
 
-        # Escribir primero en HKCU (perfil de usuario actual, efecto inmediato sin requerir elevación)
-        # y luego en HKLM (sistema)
-        $targets = @(
-            @{ Block = $browser.UserBlocklist; Allow = $browser.UserAllowlist; Scope = "HKCU" },
-            @{ Block = $browser.BlocklistKey; Allow = $browser.AllowlistKey; Scope = "HKLM" }
-        )
-
-        foreach ($t in $targets) {
+        foreach ($root in $registryRoots) {
             try {
-                if (-not (Test-Path $t.Block)) {
-                    try { New-Item -Path $t.Block -Force -ErrorAction SilentlyContinue | Out-Null } catch {}
-                }
-                if (-not (Test-Path $t.Allow)) {
-                    try { New-Item -Path $t.Allow -Force -ErrorAction SilentlyContinue | Out-Null } catch {}
+                $baseKey = "$root\$($browser.SubKey)"
+                $blockKey = "$root\$($browser.BlocklistSub)"
+                $allowKey = "$root\$($browser.AllowlistSub)"
+
+                if (-not (Test-Path $baseKey)) {
+                    New-Item -Path $baseKey -Force -ErrorAction SilentlyContinue | Out-Null
                 }
 
-                $currBlock = Get-RegistryStringList -Path $t.Block
-                $currAllow = Get-RegistryStringList -Path $t.Allow
+                # Para Chromium: Forzar desactivación de QUIC, DoH y usar DNS del sistema
+                if ($browser.IsChromium -and (Test-Path $baseKey)) {
+                    Set-ItemProperty -Path $baseKey -Name "QuicAllowed" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                    Set-ItemProperty -Path $baseKey -Name "BuiltInDnsClientEnabled" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                    Set-ItemProperty -Path $baseKey -Name "DnsOverHttpsMode" -Value "off" -Type String -Force -ErrorAction SilentlyContinue | Out-Null
+                }
+
+                $currBlock = Get-RegistryStringList -Path $blockKey
+                $currAllow = Get-RegistryStringList -Path $allowKey
 
                 $blockEqual = ($currBlock.Count -eq 0 -and $targetBlockList.Count -eq 0) -or 
                               (($currBlock.Count -eq $targetBlockList.Count) -and ((Compare-Object $currBlock $targetBlockList -ErrorAction SilentlyContinue).Count -eq 0))
@@ -318,48 +685,36 @@ function Apply-BrowserPolicies {
                               (($currAllow.Count -eq $targetAllowList.Count) -and ((Compare-Object $currAllow $targetAllowList -ErrorAction SilentlyContinue).Count -eq 0))
 
                 if (-not ($blockEqual -and $allowEqual)) {
-                    Set-RegistryStringList -Path $t.Block -Values $targetBlockList
-                    Set-RegistryStringList -Path $t.Allow -Values $targetAllowList
+                    Set-RegistryStringList -Path $blockKey -Values $targetBlockList
+                    Set-RegistryStringList -Path $allowKey -Values $targetAllowList
                     $policyChangedAny = $true
                 }
             } catch {}
         }
     }
 
-    # Si hubo cambios en las directivas, notificar de inmediato al sistema y vaciar caché DNS
+    # Notificar al sistema si hubo cambios
     if ($policyChangedAny) {
         try {
-            # 1. Tocar las claves raíz de Chromium (Chrome/Edge/Opera) para disparar RegNotifyChangeKeyValue interno
             $nowTicks = [string](Get-Date).Ticks
-            $rootKeys = @(
-                "HKCU:\SOFTWARE\Policies\Google\Chrome",
-                "HKCU:\SOFTWARE\Policies\Microsoft\Edge",
-                "HKCU:\SOFTWARE\Policies\Opera Software\Opera",
-                "HKLM:\SOFTWARE\Policies\Google\Chrome",
-                "HKLM:\SOFTWARE\Policies\Microsoft\Edge",
-                "HKLM:\SOFTWARE\Policies\Opera Software\Opera"
-            )
-            foreach ($rk in $rootKeys) {
-                try {
+            foreach ($root in $registryRoots) {
+                foreach ($b in $BrowserRegistryTargets) {
+                    $rk = "$root\$($b.SubKey)"
                     if (Test-Path $rk) {
                         Set-ItemProperty -Path $rk -Name "LastPolicyUpdate" -Value $nowTicks -Force -ErrorAction SilentlyContinue | Out-Null
                     }
-                } catch {}
+                }
             }
 
-            # 2. Forzar refresco inmediato de directivas a nivel de Windows Group Policy
             try {
                 [PolicyNotifier]::RefreshPolicyEx($false, 1) | Out-Null
                 [PolicyNotifier]::RefreshPolicyEx($true, 1) | Out-Null
             } catch {}
 
-            # 3. Notificación broadcast a todas las ventanas y procesos de Windows (WM_SETTINGCHANGE)
-            [PolicyNotifier]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, "Policy", 2, 500, [ref][UIntPtr]::Zero) | Out-Null
-            [PolicyNotifier]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, "Environment", 2, 500, [ref][UIntPtr]::Zero) | Out-Null
+            [PolicyNotifier]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, "Policy", 2, 300, [ref][UIntPtr]::Zero) | Out-Null
+            [PolicyNotifier]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, "Environment", 2, 300, [ref][UIntPtr]::Zero) | Out-Null
 
-            # 4. Limpieza de caché DNS para forzar resolución bajo las nuevas directivas
-            Clear-DnsClientCache -ErrorAction SilentlyContinue
-            ipconfig /flushdns 2>$null | Out-Null
+            Flush-NetworkCaches
         } catch {}
     }
 }
@@ -371,12 +726,13 @@ $hostname = $env:COMPUTERNAME
 $localIp = Get-LocalIpv4
 
 Write-Host "==============================================================" -ForegroundColor Cyan
-Write-Host " AGENTE DE BLOQUEO WEB - LABORATORIO DE COMPUTO WINDOWS" -ForegroundColor Cyan
+Write-Host " AGENTE DE BLOQUEO WEB INSTANTANEO - UPC NETSHIELD" -ForegroundColor Cyan
 Write-Host "==============================================================" -ForegroundColor Cyan
 Write-Host " Estacion de trabajo: $hostname" -ForegroundColor White
 Write-Host " Direccion IP local:  $localIp" -ForegroundColor White
 Write-Host " Servidor central:    $($config.ServerUrl)" -ForegroundColor White
-Write-Host " Frecuencia pulso:    $($config.IntervaloSegundos) segundos" -ForegroundColor White
+Write-Host " Frecuencia de pulso: $($config.IntervaloSegundos) segundo(s)" -ForegroundColor White
+Write-Host " Modo de aplicacion:  Inmediato (sin reiniciar navegadores)" -ForegroundColor Green
 Write-Host "==============================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -405,14 +761,26 @@ do {
         $allowedUrls = @()
         if ($response.allowedUrls) { $allowedUrls = @($response.allowedUrls) }
 
-        # Aplicar directivas en navegadores
+        # 1. Aplicar en hosts de Windows (efecto instantáneo al navegar)
+        Update-HostsFile -PolicyMode $policyMode -BlockedUrls $blockedUrls
+
+        # 2. Gestionar reglas de Firewall (bloqueo total instantáneo en puerto 80/443)
+        Update-FirewallPolicy -PolicyMode $policyMode -ServerUrl $config.ServerUrl
+
+        # 3. Aplicar directivas de registro en HKLM, HKCU y todos los usuarios
         Apply-BrowserPolicies -PolicyMode $policyMode -BlockedUrls $blockedUrls -AllowedUrls $allowedUrls -Config $config
+
+        # 4. Actualizar policies.json de Firefox
+        Update-FirefoxPoliciesJson -PolicyMode $policyMode -BlockedUrls $blockedUrls -AllowedUrls $allowedUrls
+
+        # 5. Cortar sockets TCP activos hacia sitios o puertos restringidos
+        Sever-ActiveBrowserSockets -PolicyMode $policyMode -BlockedUrls $blockedUrls
 
         $currentStateKey = "$policyMode|$($blockedUrls.Count)|$($allowedUrls.Count)|$($blockedUrls -join ',')|$($allowedUrls -join ',')"
         if ($currentStateKey -ne $previousPolicyState) {
             switch ($policyMode) {
                 "block_all" {
-                    Write-Log "Directiva aplicada al instante: [BLOQUEAR TODO] Toda la navegacion web inhabilitada." "WARN"
+                    Write-Log "Directiva aplicada al instante: [BLOQUEAR TODO] Toda la navegacion web inhabilitada sin reiniciar navegadores." "WARN"
                 }
                 "allow_list" {
                     Write-Log "Directiva aplicada al instante: [PERMITIR LISTA] Solo $($allowedUrls.Count) sitio(s) autorizados: ($($allowedUrls -join ', '))" "SUCCESS"

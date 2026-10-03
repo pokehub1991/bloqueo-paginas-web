@@ -45,8 +45,8 @@ El script instalará automáticamente las dependencias, compilará la interfaz y
 ==============================================================
   CENTRO DE CONTROL DE BLOQUEO WEB - SERVIDOR CENTRAL ACTIVO  
 ==============================================================
-  Acceso Local:    http://localhost:4000
-  Acceso en Red:   http://192.168.1.X:4000
+  Acceso Local:    http://localhost:5050
+  Acceso en Red:   http://10.142.240.190:5050
 --------------------------------------------------------------
   Credenciales por defecto: admin / V1ll@uPc
 ==============================================================
@@ -57,7 +57,7 @@ El script instalará automáticamente las dependencias, compilará la interfaz y
 2. Abre `agent/config.ini` con el Bloc de Notas y coloca la dirección del servidor central:
    ```ini
    [Servidor]
-   ServerUrl = http://192.168.1.X:4000
+   ServerUrl = http://10.142.240.190:5050
    ```
 3. Haz clic derecho en `agent/agent.bat` y selecciona **"Ejecutar como Administrador"**.
 4. ¡Listo! La computadora aparecerá automáticamente en el panel web en menos de un minuto.

@@ -13,7 +13,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  Building2
+  Building2,
+  Pencil,
+  Check,
+  X
 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/api';
 
@@ -27,12 +30,15 @@ export default function DeviceTable({
   onRefresh,
   onDeleteDevice,
   onDeleteSelected,
+  onRenameDevice,
   isLoading = false,
   totalOnline = 0,
   pavilionsCount = 0,
   totalRulesCount = 0
 }) {
   const [currentPage, setCurrentPage] = useState(1);
+  const [editingHostname, setEditingHostname] = useState(null);
+  const [newHostnameValue, setNewHostnameValue] = useState('');
 
   // Reiniciar a página 1 si el filtrado cambia la cantidad
   useEffect(() => {
@@ -159,22 +165,22 @@ export default function DeviceTable({
                 </th>
 
                 {/* 2. HOST */}
-                <th className="py-3.5 px-4 min-w-[160px] align-middle">
+                <th className="py-3.5 px-4 min-w-[160px] text-center align-middle">
                   <span>HOST</span>
                 </th>
 
                 {/* 3. IP */}
-                <th className="py-3.5 px-3 w-28 whitespace-nowrap align-middle">
+                <th className="py-3.5 px-3 w-28 whitespace-nowrap text-center align-middle">
                   <span>IP</span>
                 </th>
 
                 {/* 4. REGLAS DE NAVEGACIÓN */}
-                <th className="py-3.5 px-4 min-w-[200px] align-middle">
+                <th className="py-3.5 px-4 min-w-[200px] text-center align-middle">
                   <span>REGLAS DE NAVEGACIÓN</span>
                 </th>
 
                 {/* 5. ÚLTIMO PULSO */}
-                <th className="py-3.5 px-4 min-w-[140px] align-middle">
+                <th className="py-3.5 px-4 min-w-[140px] text-center align-middle">
                   <span>ÚLTIMO PULSO</span>
                 </th>
 
@@ -196,8 +202,10 @@ export default function DeviceTable({
                   <tr
                     key={device.hostname}
                     onClick={() => onToggleSelect(device.hostname)}
-                    className={`transition-colors cursor-pointer select-none ${
-                      isSelected ? 'bg-brand-500/15 hover:bg-brand-500/20' : 'hover:bg-surface-elevated/60'
+                    className={`transition-all duration-150 cursor-pointer select-none group/row ${
+                      isSelected 
+                        ? 'bg-brand-500/20 hover:bg-brand-500/25 shadow-[inset_4px_0_0_0_#0ea5e9]' 
+                        : 'hover:bg-surface-highlight/60 hover:shadow-[inset_3px_0_0_0_#38bdf8]'
                     }`}
                   >
                     {/* Checkbox de selección */}
@@ -216,34 +224,87 @@ export default function DeviceTable({
                       </div>
                     </td>
 
-                    {/* 1. ESTADO: Punto animado ampliado centrado verticalmente */}
+                    {/* 1. ESTADO: Punto indicador minimalista sin anillos gruesos */}
                     <td className="py-3.5 px-3 text-center align-middle">
                       <div className="flex items-center justify-center">
-                        <div className="inline-flex items-center justify-center p-1.5 rounded-full bg-surface-elevated border border-border/80 shadow-inner">
-                          {device.isOnline ? (
-                            <span 
-                              className="relative flex h-3.5 w-3.5"
-                              title="Equipo en línea (Conectado y sincronizando)"
-                            >
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80"></span>
-                              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 shadow-md shadow-emerald-500/60"></span>
-                            </span>
-                          ) : (
-                            <span 
-                              className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 shadow-md shadow-rose-500/40"
-                              title="Equipo inactivo (Sin respuesta en los últimos 90 segundos)"
-                            ></span>
-                          )}
-                        </div>
+                        {device.isOnline ? (
+                          <span 
+                            className="relative flex h-2.5 w-2.5"
+                            title="Equipo en línea (Conectado y sincronizando)"
+                          >
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                          </span>
+                        ) : (
+                          <span 
+                            className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-600"
+                            title="Equipo inactivo (Sin respuesta en los últimos 90 segundos)"
+                          ></span>
+                        )}
                       </div>
                     </td>
 
-                    {/* 2. HOST: Nombre limpio sin icono a la izquierda */}
-                    <td className="py-3.5 px-4 align-middle">
-                      <div className="flex flex-col justify-center">
-                        <span className="font-bold text-white text-sm tracking-wide">
-                          {device.hostname}
-                        </span>
+                    {/* 2. HOST: Nombre limpio con opción de renombrar inline */}
+                    <td className="py-3.5 px-4 text-center align-middle">
+                      <div className="flex flex-col justify-center items-center">
+                        {editingHostname === device.hostname ? (
+                          <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={newHostnameValue}
+                              onChange={(e) => setNewHostnameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (onRenameDevice) onRenameDevice(device.hostname, newHostnameValue);
+                                  setEditingHostname(null);
+                                } else if (e.key === 'Escape') {
+                                  setEditingHostname(null);
+                                }
+                              }}
+                              className="bg-surface-elevated border border-brand-500 rounded-lg px-2 py-0.5 text-xs text-white font-mono uppercase font-bold outline-none w-36 shadow-md text-center"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onRenameDevice) onRenameDevice(device.hostname, newHostnameValue);
+                                setEditingHostname(null);
+                              }}
+                              className="p-1 rounded bg-emerald-500 hover:bg-emerald-600 text-white transition cursor-pointer"
+                              title="Guardar nombre"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingHostname(null)}
+                              className="p-1 rounded bg-surface hover:bg-surface-highlight text-foreground-muted hover:text-white transition cursor-pointer"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1.5 group/host">
+                            <span className="font-bold text-white text-sm tracking-wide group-hover/row:text-brand-300 transition-colors">
+                              {device.hostname}
+                            </span>
+                            {onRenameDevice && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingHostname(device.hostname);
+                                  setNewHostnameValue(device.hostname);
+                                }}
+                                className="opacity-0 group-hover/host:opacity-100 p-1 rounded-md hover:bg-brand-500/20 text-brand-400 hover:text-brand-300 transition cursor-pointer"
+                                title="Cambiar / Renombrar nombre de este equipo"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <span className="text-[11px] text-foreground-subtle tracking-normal">
                           {device.os || 'Windows 11'}
                         </span>
@@ -251,22 +312,22 @@ export default function DeviceTable({
                     </td>
 
                     {/* 3. IP */}
-                    <td className="py-3.5 px-3 whitespace-nowrap align-middle">
-                      <div className="flex items-center">
-                        <span className="font-mono text-xs text-foreground bg-surface-elevated px-2.5 py-1 rounded-md border border-border">
+                    <td className="py-3.5 px-3 whitespace-nowrap text-center align-middle">
+                      <div className="flex items-center justify-center">
+                        <span className="font-mono tabular-nums text-xs text-foreground bg-surface-elevated group-hover/row:bg-surface-elevated/90 group-hover/row:border-border-strong border border-border/40 px-2.5 py-1 rounded-lg transition-all">
                           {device.ip}
                         </span>
                       </div>
                     </td>
 
                     {/* 4. REGLAS */}
-                    <td className="py-3.5 px-4 align-middle">
-                      <div className="flex items-center">
+                    <td className="py-3.5 px-4 text-center align-middle">
+                      <div className="flex items-center justify-center group-hover/row:scale-[1.02] transition-transform">
                         {policyMode === 'block_all' ? (
                           <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 font-semibold">
                             <Ban className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                             <span>Bloquear todo</span>
-                            <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-52 p-2 bg-slate-900 border border-slate-700 text-[11px] text-rose-200 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50">
+                            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-52 p-2 bg-surface-elevated border border-border-strong text-[11px] text-rose-200 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50 text-left">
                               Toda navegación web está inhabilitada en este equipo.
                             </span>
                           </div>
@@ -274,12 +335,12 @@ export default function DeviceTable({
                           <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                             <span>Permitir lista ({allowedList.length})</span>
-                            <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-64 p-2.5 bg-slate-900 border border-slate-700 text-[11px] text-emerald-100 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50">
-                              <strong className="block text-white mb-1 border-b border-slate-800 pb-1">Sitios Autorizados:</strong>
+                            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-64 p-2.5 bg-surface-elevated border border-border-strong text-[11px] text-emerald-100 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50 text-left">
+                              <strong className="block text-white mb-1 border-b border-border pb-1">Sitios Autorizados:</strong>
                               {allowedList.length > 0 ? (
                                 <span className="break-words leading-relaxed">{allowedList.join(', ')}</span>
                               ) : (
-                                <span className="italic text-slate-400">Sin sitios definidos (bloqueo total)</span>
+                                <span className="italic text-foreground-subtle">Sin sitios definidos (bloqueo total)</span>
                               )}
                             </span>
                           </div>
@@ -287,14 +348,14 @@ export default function DeviceTable({
                           <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 font-semibold">
                             <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                             <span>Bloquear lista ({blockedList.length})</span>
-                            <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-64 p-2.5 bg-slate-900 border border-slate-700 text-[11px] text-amber-100 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50">
-                              <strong className="block text-white mb-1 border-b border-slate-800 pb-1">Sitios Restringidos:</strong>
+                            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-64 p-2.5 bg-surface-elevated border border-border-strong text-[11px] text-amber-100 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition z-50 text-left">
+                              <strong className="block text-white mb-1 border-b border-border pb-1">Sitios Restringidos:</strong>
                               <span className="break-words leading-relaxed">{blockedList.join(', ')}</span>
                             </span>
                           </div>
                         ) : (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-400 font-medium">
-                            <Globe className="w-3.5 h-3.5" />
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-elevated border border-border text-foreground-muted font-medium">
+                            <Globe className="w-3.5 h-3.5 text-foreground-subtle" />
                             <span>Navegación libre</span>
                           </div>
                         )}
@@ -302,8 +363,8 @@ export default function DeviceTable({
                     </td>
 
                     {/* 5. ÚLTIMO PULSO */}
-                    <td className="py-3.5 px-4 whitespace-nowrap align-middle">
-                      <div className="flex items-center">
+                    <td className="py-3.5 px-4 whitespace-nowrap text-center align-middle">
+                      <div className="flex items-center justify-center">
                         <span
                           className="text-foreground-muted text-xs"
                           title={device.lastSeen ? `Última sincronización: ${device.lastSeen}` : ''}
@@ -344,29 +405,29 @@ export default function DeviceTable({
       <div className="p-4 md:px-5 border-t border-border bg-surface-elevated/30 flex flex-col md:flex-row items-center justify-between gap-4 mt-auto">
         {/* Métricas resumidas de Hero */}
         <div className="flex flex-wrap items-center gap-2 text-xs w-full md:w-auto">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-elevated text-foreground">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="font-semibold text-white">{totalOnline}</span>
+            <span className="font-semibold text-white tabular-nums">{totalOnline}</span>
             <span className="text-foreground-muted">en línea</span>
           </div>
 
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-elevated text-foreground">
             <Monitor className="w-3.5 h-3.5 text-brand-400" />
-            <span className="font-semibold text-white">{devices.length}</span>
+            <span className="font-semibold text-white tabular-nums">{devices.length}</span>
             <span className="text-foreground-muted">registrados</span>
           </div>
 
           {pavilionsCount > 0 && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
-              <Building2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="font-semibold text-white">{pavilionsCount}</span>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-elevated text-foreground">
+              <Building2 className="w-3.5 h-3.5 text-brand-400" />
+              <span className="font-semibold text-white tabular-nums">{pavilionsCount}</span>
               <span className="text-foreground-muted">pabellones</span>
             </div>
           )}
 
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-elevated text-foreground">
             <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-            <span className="font-semibold text-white">{totalRulesCount}</span>
+            <span className="font-semibold text-white tabular-nums">{totalRulesCount}</span>
             <span className="text-foreground-muted">reglas</span>
           </div>
         </div>
@@ -388,7 +449,7 @@ export default function DeviceTable({
                 <ChevronLeft className="w-4 h-4" />
               </button>
 
-              <span className="px-2.5 py-1 rounded-lg bg-surface border border-border text-foreground font-medium">
+              <span className="px-2.5 py-1 rounded-lg bg-surface-elevated text-foreground font-medium">
                 {currentPage} / {totalPages}
               </span>
 

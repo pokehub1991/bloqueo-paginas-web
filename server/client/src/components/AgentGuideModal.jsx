@@ -6,13 +6,13 @@ export default function AgentGuideModal({
   onClose,
   systemInfo = {},
   serverIp,
-  port = 4000
+  port = 5050
 }) {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  const serverUrl = systemInfo.recommendedUrl || (serverIp ? `http://${serverIp}:${port}` : 'http://10.142.240.190:4000');
+  const serverUrl = systemInfo.recommendedUrl || (serverIp ? `http://${serverIp}:${port}` : 'http://10.142.240.190:5050');
   const configLine = `ServerUrl = ${serverUrl}`;
 
   const handleCopy = () => {

@@ -98,6 +98,13 @@ export const api = {
     });
   },
 
+  renameDevice: async (hostname, newHostname) => {
+    return request(`/devices/${encodeURIComponent(hostname)}/rename`, {
+      method: 'PUT',
+      body: JSON.stringify({ newHostname })
+    });
+  },
+
   deleteBulkDevices: async (hostnames) => {
     return request('/devices/delete-bulk', {
       method: 'POST',
@@ -115,6 +122,13 @@ export const api = {
   seedDemoDevices: async () => {
     return request('/devices/seed-demo', {
       method: 'POST'
+    });
+  },
+
+  importCsv: async (csvText, defaultPavilion, defaultLab) => {
+    return request('/devices/import-csv', {
+      method: 'POST',
+      body: JSON.stringify({ csvText, defaultPavilion, defaultLab })
     });
   },
 

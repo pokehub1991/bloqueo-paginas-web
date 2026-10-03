@@ -45,8 +45,8 @@ const ONBOARDING_STEPS = [
     description: 'Tienes a tu disposición 3 modalidades según la actividad académica: "Bloquear todo" (ideal para exámenes), "Permitir lista" (solo recursos de clase) o "Bloquear lista" (restringir redes sociales o juegos).',
     tip: 'Las páginas que agregues se mantendrán guardadas de forma persistente y no se borrarán las anteriores.',
     icon: Monitor,
-    color: 'text-indigo-400',
-    bg: 'bg-indigo-500/10'
+    color: 'text-brand-400',
+    bg: 'bg-brand-500/10'
   },
   {
     step: 5,

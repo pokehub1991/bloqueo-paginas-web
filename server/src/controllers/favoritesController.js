@@ -2,10 +2,16 @@ import { db } from '../db/index.js';
 
 export function getFavorites(req, res) {
   try {
+    // Purgar de forma permanente cualquier favorito de prueba residual en bases de datos existentes
+    try {
+      db.prepare("DELETE FROM favorites WHERE category != 'Frecuentes'").run();
+    } catch (e) {}
+
     const favorites = db.prepare(`
       SELECT id, title, url, category, icon, created_at
       FROM favorites
-      ORDER BY category ASC, id ASC
+      WHERE category = 'Frecuentes'
+      ORDER BY id DESC
     `).all();
 
     // Agrupar por categoría para fácil consumo en frontend
@@ -82,41 +88,14 @@ export function deleteFavorite(req, res) {
 
 export function resetDefaults(req, res) {
   try {
-    const defaultFavorites = [
-      { title: 'Facebook', url: 'facebook.com', category: 'Redes Sociales', icon: 'share-2' },
-      { title: 'Instagram', url: 'instagram.com', category: 'Redes Sociales', icon: 'camera' },
-      { title: 'TikTok', url: 'tiktok.com', category: 'Redes Sociales', icon: 'music' },
-      { title: 'X (Twitter)', url: 'x.com', category: 'Redes Sociales', icon: 'twitter' },
-      { title: 'YouTube (Completo)', url: 'youtube.com', category: 'Videos y Streaming', icon: 'youtube' },
-      { title: 'YouTube Shorts', url: 'youtube.com/shorts', category: 'Videos y Streaming', icon: 'film' },
-      { title: 'Netflix', url: 'netflix.com', category: 'Videos y Streaming', icon: 'tv' },
-      { title: 'Twitch', url: 'twitch.tv', category: 'Videos y Streaming', icon: 'video' },
-      { title: 'Cuevana', url: 'cuevana.pro', category: 'Videos y Streaming', icon: 'play' },
-      { title: 'Roblox', url: 'roblox.com', category: 'Juegos Web', icon: 'gamepad-2' },
-      { title: 'Poki', url: 'poki.com', category: 'Juegos Web', icon: 'joystick' },
-      { title: 'Friv', url: 'friv.com', category: 'Juegos Web', icon: 'smile' }
-    ];
-
-    const reset = db.transaction(() => {
-      db.prepare('DELETE FROM favorites').run();
-      const insertFav = db.prepare(`
-        INSERT INTO favorites (title, url, category, icon)
-        VALUES (@title, @url, @category, @icon)
-      `);
-      for (const fav of defaultFavorites) {
-        insertFav.run(fav);
-      }
-    });
-
-    reset();
-
+    db.prepare('DELETE FROM favorites').run();
     return res.json({
       success: true,
-      message: 'Catálogo de favoritos restablecido a los valores predeterminados.'
+      message: 'Catálogo de favoritos vaciado.'
     });
   } catch (error) {
-    console.error('[Favoritos] Error al restablecer favoritos:', error);
-    return res.status(500).json({ error: 'Error al restablecer catálogo.' });
+    console.error('[Favoritos] Error al vaciar favoritos:', error);
+    return res.status(500).json({ error: 'Error al vaciar catálogo.' });
   }
 }
 

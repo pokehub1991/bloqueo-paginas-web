@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso Bloqueado · UPC NetShield</title>
+  <link rel="stylesheet" href="blocked.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+
+  <main class="card">
+    <!-- Header Institucional -->
+    <div class="logo-wrapper">
+      <img src="icons/logo.png" alt="UPC" class="logo-img">
+    </div>
+
+    <div class="badge-campus">
+      <span class="dot-status"></span>
+      <span>UPC NetShield · Campus Villa</span>
+    </div>
+
+    <h1 class="title">Acceso Bloqueado</h1>
+
+    <div class="domain-chip" id="domainChip">
+      <span class="globe-icon">🌐</span>
+      <span id="domainText">sitio-web.com</span>
+    </div>
+
+    <p class="description" id="reasonText">
+      El acceso a esta página web ha sido restringido por requerimientos del docente o área. Comunícate con el encargado del área o laboratorio para mayor información.
+    </p>
+
+    <!-- Caja de metadatos de la estación -->
+    <div class="meta-box">
+      <div class="meta-row">
+        <span class="meta-label">Estación de trabajo:</span>
+        <span class="meta-value" id="hostnameText">PC-LAB</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Directiva de red:</span>
+        <span class="meta-value text-amber" id="policyText">Restricción activa</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Última comprobación:</span>
+        <span class="meta-value" id="timeText">--:--:--</span>
+      </div>
+    </div>
+
+    <!-- Botones de acción -->
+    <div class="actions">
+      <button class="btn btn-primary" id="btnRetry">
+        <span class="refresh-icon">🔄</span> Reintentar acceso
+      </button>
+      <button class="btn btn-secondary" id="btnBack">
+        Volver
+      </button>
+    </div>
+
+    <footer class="footer-text">
+      <span class="text-upc-red">UPC</span> - Universidad Peruana de Ciencias Aplicadas - 2026
+    </footer>
+  </main>
+
+  <script src="blocked.js"></script>
+</body>
+</html>

@@ -36,16 +36,22 @@ export function listDevices(req, res) {
 
     const formattedDevices = devices.map(device => {
       const h = device.hostname.toUpperCase();
-      const lastSeenDate = new Date(device.last_seen + (device.last_seen.endsWith('Z') ? '' : 'Z'));
-      const lastSeenMs = lastSeenDate.getTime();
-      const diffMs = now - lastSeenMs;
-      const isOnline = diffMs >= 0 && diffMs <= ONLINE_THRESHOLD_MS;
+      let isOnline = false;
+      if (device.last_seen) {
+        const lastSeenStr = String(device.last_seen).trim();
+        const utcStr = lastSeenStr.endsWith('Z') ? lastSeenStr : lastSeenStr + 'Z';
+        const lastSeenDate = new Date(utcStr);
+        const lastSeenMs = lastSeenDate.getTime();
+        const diffMs = now - lastSeenMs;
+        isOnline = !isNaN(lastSeenMs) && diffMs >= 0 && diffMs <= ONLINE_THRESHOLD_MS;
+      }
 
       if (isOnline) onlineCount++;
 
       const academic = parseAcademicLocation(device.hostname);
       const devRules = rulesMap[h] || { blocked: [], allowed: [] };
-      const policyMode = device.policy_mode || 'block_list';
+      const hasAppliedRules = devRules.blocked.length > 0 || devRules.allowed.length > 0 || device.policy_mode === 'block_all';
+      const policyMode = hasAppliedRules ? (device.policy_mode || 'block_list') : 'none';
 
       return {
         id: device.id,
@@ -175,6 +181,20 @@ export function blockUrls(req, res) {
           }
         }
       }
+
+      // Guardar automáticamente cada URL agregada en el catálogo de favoritos sin duplicar
+      if (mode !== 'remove' && cleanUrls.length > 0) {
+        const saveFavStmt = db.prepare(`
+          INSERT INTO favorites (title, url, category, icon)
+          VALUES (?, ?, 'Frecuentes', 'globe')
+          ON CONFLICT(url) DO NOTHING
+        `);
+        for (const u of cleanUrls) {
+          const domainTitle = u.replace(/\.[a-z]+$/, '');
+          const formattedTitle = domainTitle.charAt(0).toUpperCase() + domainTitle.slice(1);
+          saveFavStmt.run(formattedTitle, u);
+        }
+      }
     });
 
     applyChanges();
@@ -271,10 +291,18 @@ export function updateUrlOnDevices(req, res) {
 
   try {
     const updateStmt = db.prepare('UPDATE device_rules SET url = ? WHERE hostname = ? AND url = ? AND rule_type = ?');
+    const saveFavStmt = db.prepare(`
+      INSERT INTO favorites (title, url, category, icon)
+      VALUES (?, ?, 'Frecuentes', 'globe')
+      ON CONFLICT(url) DO NOTHING
+    `);
     const applyChanges = db.transaction(() => {
       for (const h of cleanHostnames) {
         updateStmt.run(cleanNew, h, cleanOld, ruleType);
       }
+      const domainTitle = cleanNew.replace(/\.[a-z]+$/, '');
+      const formattedTitle = domainTitle.charAt(0).toUpperCase() + domainTitle.slice(1);
+      saveFavStmt.run(formattedTitle, cleanNew);
     });
     applyChanges();
     broadcastDeviceUpdate({ action: 'update_url', affectedHostnames: cleanHostnames });
@@ -465,3 +493,197 @@ export function seedDemoDevices(req, res) {
     return res.status(500).json({ error: 'Error al generar laboratorios de prueba.' });
   }
 }
+
+/**
+ * Renombrar una estación de trabajo (Hostname)
+ */
+export function renameDevice(req, res) {
+  const { hostname } = req.params;
+  const { newHostname } = req.body || {};
+
+  if (!newHostname || typeof newHostname !== 'string' || !newHostname.trim()) {
+    return res.status(400).json({ error: 'El nuevo nombre de equipo no puede estar vacío.' });
+  }
+
+  const oldH = hostname.trim().toUpperCase();
+  const newH = newHostname.trim().toUpperCase();
+
+  try {
+    const existing = db.prepare('SELECT id FROM devices WHERE hostname = ?').get(oldH);
+    if (!existing) {
+      return res.status(404).json({ error: `El equipo ${oldH} no existe en el sistema.` });
+    }
+
+    const collision = db.prepare('SELECT id FROM devices WHERE hostname = ? AND hostname != ?').get(newH, oldH);
+    if (collision) {
+      return res.status(400).json({ error: `Ya existe otro equipo registrado con el nombre ${newH}.` });
+    }
+
+    const update = db.transaction(() => {
+      db.prepare('UPDATE devices SET hostname = ? WHERE hostname = ?').run(newH, oldH);
+      db.prepare('UPDATE device_rules SET hostname = ? WHERE hostname = ?').run(newH, oldH);
+    });
+    update();
+
+    broadcastDeviceUpdate({ action: 'rename', oldHostname: oldH, newHostname: newH });
+
+    return res.json({
+      success: true,
+      message: `Equipo ${oldH} renombrado exitosamente a ${newH}.`,
+      oldHostname: oldH,
+      newHostname: newH
+    });
+  } catch (err) {
+    console.error('[Dispositivos] Error al renombrar equipo:', err);
+    return res.status(500).json({ error: 'Error interno al renombrar el equipo.' });
+  }
+}
+
+/**
+ * Importar catálogo de laboratorios desde un archivo o texto CSV (hostname, ip)
+ * Asocia automáticamente cada IP a su Hostname real y actualiza equipos ya conectados.
+ */
+export function importCsv(req, res) {
+  const { csvText, defaultPavilion, defaultLab } = req.body || {};
+
+  if (!csvText || typeof csvText !== 'string' || !csvText.trim()) {
+    return res.status(400).json({ error: 'El contenido del archivo CSV no puede estar vacío.' });
+  }
+
+  const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    return res.status(400).json({ error: 'No se encontraron líneas válidas en el CSV.' });
+  }
+
+  // Detectar delimitador (coma, punto y coma o tabulación)
+  const firstLine = lines[0];
+  let delimiter = ',';
+  if (firstLine.includes(';') && !firstLine.includes(',')) delimiter = ';';
+  else if (firstLine.includes('\t')) delimiter = '\t';
+
+  let startIndex = 0;
+  // Omitir fila de encabezado si existe
+  const headerLower = firstLine.toLowerCase();
+  if (headerLower.includes('host') || headerLower.includes('nombre') || headerLower.includes('ip') || headerLower.includes('equipo')) {
+    startIndex = 1;
+  }
+
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const parsedRows = [];
+
+  for (let i = startIndex; i < lines.length; i++) {
+    const parts = lines[i].split(delimiter).map(p => p.trim().replace(/^["']|["']$/g, ''));
+    if (parts.length < 2) continue;
+
+    let h = parts[0].trim().toUpperCase();
+    let ip = parts[1].trim();
+    let lab = parts[2] ? parts[2].trim().toUpperCase() : (defaultLab || null);
+    let pav = parts[3] ? parts[3].trim().toUpperCase() : (defaultPavilion || null);
+
+    // Si las columnas vinieron invertidas (ip primero, luego host)
+    if (ipv4Regex.test(h) && !ipv4Regex.test(ip)) {
+      const temp = h;
+      h = ip.toUpperCase();
+      ip = temp;
+    }
+
+    if (!h || !ipv4Regex.test(ip)) continue;
+
+    // Clasificación académica automática si no se especificó aula/pabellón
+    const academic = parseAcademicLocation(h);
+    const finalPavilion = pav || academic.pavilion;
+    const finalLab = lab || academic.laboratory;
+
+    parsedRows.push({
+      hostname: h,
+      ip: ip,
+      pavilion: finalPavilion,
+      laboratory: finalLab
+    });
+  }
+
+  if (parsedRows.length === 0) {
+    return res.status(400).json({ 
+      error: 'No se pudieron extraer registros válidos. Verifica que el formato sea: hostname,ip (ej: VH101-01,10.142.233.10)' 
+    });
+  }
+
+  try {
+    let insertedCount = 0;
+    let renamedCount = 0;
+    let updatedIpCount = 0;
+
+    const executeImport = db.transaction(() => {
+      const upsertMapping = db.prepare(`
+        INSERT INTO ip_host_mappings (ip, hostname, pavilion, laboratory)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(ip) DO UPDATE SET
+          hostname = excluded.hostname,
+          pavilion = excluded.pavilion,
+          laboratory = excluded.laboratory
+      `);
+
+      const findByIp = db.prepare('SELECT hostname, is_online FROM (SELECT hostname, (last_seen IS NOT NULL) as is_online FROM devices WHERE ip = ?) LIMIT 1');
+      const findByHost = db.prepare('SELECT hostname, ip FROM devices WHERE hostname = ?');
+
+      const renameDeviceStmt = db.prepare('UPDATE devices SET hostname = ? WHERE hostname = ?');
+      const renameRulesStmt = db.prepare('UPDATE device_rules SET hostname = ? WHERE hostname = ?');
+      const updateIpStmt = db.prepare('UPDATE devices SET ip = ? WHERE hostname = ?');
+      const insertDeviceStmt = db.prepare(`
+        INSERT INTO devices (hostname, ip, os, policy_mode, last_seen)
+        VALUES (?, ?, 'Windows', 'none', NULL)
+      `);
+
+      for (const row of parsedRows) {
+        // 1. Guardar en catálogo de asignación oficial IP -> Host
+        upsertMapping.run(row.ip, row.hostname, row.pavilion, row.laboratory);
+
+        // 2. Verificar si un equipo ya conectado con esta IP tenía un nombre provisional (ej: PC-LAB-37)
+        const currentDeviceWithIp = findByIp.get(row.ip);
+        if (currentDeviceWithIp && currentDeviceWithIp.hostname !== row.hostname) {
+          try {
+            renameRulesStmt.run(row.hostname, currentDeviceWithIp.hostname);
+            renameDeviceStmt.run(row.hostname, currentDeviceWithIp.hostname);
+            renamedCount++;
+            continue;
+          } catch (renErr) {
+            // Si colisiona con otro nombre, eliminar el provisional
+            db.prepare('DELETE FROM devices WHERE hostname = ?').run(currentDeviceWithIp.hostname);
+          }
+        }
+
+        // 3. Verificar si el host ya existe en devices para actualizar su IP
+        const currentDeviceWithHost = findByHost.get(row.hostname);
+        if (currentDeviceWithHost) {
+          if (currentDeviceWithHost.ip !== row.ip) {
+            updateIpStmt.run(row.ip, row.hostname);
+            updatedIpCount++;
+          }
+        } else {
+          // 4. Registrar equipo nuevo en el laboratorio (pendiente de conexión)
+          insertDeviceStmt.run(row.hostname, row.ip);
+          insertedCount++;
+        }
+      }
+    });
+
+    executeImport();
+
+    // Notificar al Dashboard para refresco instantáneo de tabla y contadores de pabellones
+    broadcastDeviceUpdate({ action: 'import_csv', total: parsedRows.length });
+
+    return res.json({
+      success: true,
+      totalRows: parsedRows.length,
+      insertedCount,
+      renamedCount,
+      updatedIpCount,
+      message: `Se importaron ${parsedRows.length} equipos correctamente (${renamedCount} actualizados en vivo, ${insertedCount} nuevos registrados).`
+    });
+  } catch (err) {
+    console.error('[Dispositivos] Error importando CSV:', err);
+    return res.status(500).json({ error: 'Error al procesar e importar el archivo CSV.' });
+  }
+}
+
+

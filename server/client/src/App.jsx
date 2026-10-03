@@ -6,7 +6,8 @@ import {
   LogOut, 
   Building2,
   CheckCircle2, 
-  AlertCircle
+  AlertCircle,
+  Upload
 } from 'lucide-react';
 
 import { api, getAuthToken } from './lib/api';
@@ -18,6 +19,7 @@ import OnboardingModal from './components/OnboardingModal';
 import LoginModal from './components/LoginModal';
 import AgentGuideModal from './components/AgentGuideModal';
 import ConfirmDeleteModal from './components/ConfirmDeleteModal';
+import CsvImportModal from './components/CsvImportModal';
 
 export default function App() {
   // Estado de autenticación
@@ -28,6 +30,7 @@ export default function App() {
   const [devices, setDevices] = useState([]);
   const [pavilions, setPavilions] = useState([]);
   const [laboratories, setLaboratories] = useState([]);
+  const [favorites, setFavorites] = useState([]);
   const [selectedPavilion, setSelectedPavilion] = useState('ALL');
   const [selectedLab, setSelectedLab] = useState('ALL');
   const [onlineCount, setOnlineCount] = useState(0);
@@ -44,6 +47,7 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showPavilionModal, setShowPavilionModal] = useState(false);
   const [showAgentGuide, setShowAgentGuide] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
     type: 'single', // 'single' | 'bulk' | 'lab'
@@ -64,9 +68,10 @@ export default function App() {
   const fetchData = useCallback(async () => {
     if (!getAuthToken()) return;
     try {
-      const [devicesRes, sysRes] = await Promise.all([
+      const [devicesRes, sysRes, favRes] = await Promise.all([
         api.getDevices().catch(() => ({ devices: [], pavilions: [], laboratories: [], onlineCount: 0 })),
-        api.getSystemInfo().catch(() => ({}))
+        api.getSystemInfo().catch(() => ({})),
+        api.getFavorites().catch(() => ({ favorites: [] }))
       ]);
 
       const incomingDevices = devicesRes.devices || [];
@@ -75,6 +80,7 @@ export default function App() {
       setLaboratories(devicesRes.laboratories || []);
       setOnlineCount(devicesRes.onlineCount || 0);
       setSystemInfo(sysRes || {});
+      setFavorites(favRes.favorites || []);
 
       // Mantener consistencia sin conflictos si otro usuario en otra PC eliminó equipos
       setSelectedHostnames(prev => 
@@ -277,6 +283,21 @@ export default function App() {
     });
   };
 
+  // Renombrar una estación de trabajo
+  const handleRenameDevice = async (oldHostname, newHostname) => {
+    if (!newHostname || !newHostname.trim() || oldHostname === newHostname) return;
+    setIsLoading(true);
+    try {
+      const res = await api.renameDevice(oldHostname, newHostname);
+      showToast(res.message || `Equipo renombrado a ${newHostname}`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   // Eliminar una URL específica de los seleccionados
   const handleRemoveRuleUrl = async (url, policyMode) => {
@@ -369,9 +390,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
-      {/* Toast flotante */}
+      {/* Toast flotante con entrada suave exponencial */}
       {toast && (
-        <div className="fixed top-5 right-5 z-50 animate-bounce-short">
+        <div className="fixed top-5 right-5 z-50 animate-slide-down">
           <div className={`px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold border ${
             toast.type === 'error'
               ? 'bg-rose-950/90 text-rose-200 border-rose-800'
@@ -406,7 +427,7 @@ export default function App() {
                 <span className="font-extrabold text-base md:text-lg tracking-tight text-white">
                   UPC NetShield
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-500/15 text-brand-400 border border-brand-500/30">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-500/15 text-brand-400 tracking-wide">
                   Campus Villa
                 </span>
               </div>
@@ -421,17 +442,27 @@ export default function App() {
             {/* 1. Conectar equipo (Prioridad Alta: Alto contraste, 100% legible) */}
             <button
               onClick={() => setShowAgentGuide(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs md:text-sm font-bold tracking-wide transition active:scale-95 shadow-lg shadow-brand-500/25 border border-brand-400/40 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs md:text-sm font-bold tracking-wide transition active:scale-95 shadow-md shadow-brand-500/20 cursor-pointer"
               title="Guía rápida para conectar una computadora de laboratorio"
             >
               <Laptop className="w-4 h-4 text-white stroke-[2.5]" />
               <span className="text-white drop-shadow-sm font-bold">Conectar equipo</span>
             </button>
 
-            {/* 2. Ver Pabellones (Exploración) */}
+            {/* 2. Cargar Laboratorio (CSV) */}
+            <button
+              onClick={() => setShowCsvImport(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground hover:text-white text-xs font-medium transition active:scale-95 cursor-pointer"
+              title="Cargar equipos y mapear IPs a Hostnames mediante archivo CSV"
+            >
+              <Upload className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Cargar Laboratorio (CSV)</span>
+            </button>
+
+            {/* 3. Ver Pabellones (Exploración) */}
             <button
               onClick={() => setShowPavilionModal(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground hover:text-white text-xs font-medium transition active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border text-foreground hover:text-white text-xs font-medium transition active:scale-95 cursor-pointer"
               title="Explorar pabellones y laboratorios"
             >
               <Building2 className="w-3.5 h-3.5 text-brand-400" />
@@ -481,7 +512,7 @@ export default function App() {
         />
 
         {/* Layout en 2 Columnas: Izquierda (Tabla) + Derecha (Sidebar Sticky de Reglas) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Columna Izquierda: Tabla de Equipos con Paginación (Máx 50) y Métricas de Hero en el Pie */}
           <div className="lg:col-span-8 space-y-4">
             <DeviceTable
@@ -490,6 +521,7 @@ export default function App() {
               onToggleSelect={handleToggleSelect}
               onSelectAll={handleSelectAll}
               onRefresh={fetchData}
+              onRenameDevice={handleRenameDevice}
               onDeleteDevice={handleRequestDeleteDevice}
               onDeleteSelected={handleRequestDeleteSelected}
               isLoading={isLoading}
@@ -497,22 +529,24 @@ export default function App() {
               pavilionsCount={pavilions.length}
               totalRulesCount={totalRulesCount}
             />
-
           </div>
 
-          {/* Columna Derecha: Sidebar Sticky "Reglas" siempre visible con edición de URLs */}
-          <div className="lg:col-span-4 self-start">
-            <SidebarControl
-              selectedHostnames={selectedHostnames}
-              devices={filteredDevices}
-              onApplyPolicy={handleApplyPolicy}
-              onAddUrlToSelected={handleAddUrlToSelected}
-              onRemoveRuleUrl={handleRemoveRuleUrl}
-              onUpdateRuleUrl={handleUpdateRuleUrl}
-              onUnblockSelected={() => handleUnblock(selectedHostnames)}
-              onSelectAllVisible={handleSelectAllVisible}
-              isLoading={isLoading}
-            />
+          {/* Columna Derecha: Sidebar Sticky "Reglas" siempre visible pegado a la parte superior al scrollear */}
+          <div className="lg:col-span-4">
+            <div className="sticky top-20">
+              <SidebarControl
+                selectedHostnames={selectedHostnames}
+                devices={filteredDevices}
+                favorites={favorites}
+                onApplyPolicy={handleApplyPolicy}
+                onAddUrlToSelected={handleAddUrlToSelected}
+                onRemoveRuleUrl={handleRemoveRuleUrl}
+                onUpdateRuleUrl={handleUpdateRuleUrl}
+                onUnblockSelected={() => handleUnblock(selectedHostnames)}
+                onSelectAllVisible={handleSelectAllVisible}
+                isLoading={isLoading}
+              />
+            </div>
           </div>
         </div>
       </main>
@@ -556,7 +590,17 @@ export default function App() {
         isOpen={showAgentGuide}
         onClose={() => setShowAgentGuide(false)}
         serverIp={systemInfo.localIps?.[0] || '10.142.240.190'}
-        port={systemInfo.port || 4000}
+        port={systemInfo.port || 5050}
+      />
+
+      {/* Modal de Importación CSV de Laboratorios */}
+      <CsvImportModal
+        isOpen={showCsvImport}
+        onClose={() => setShowCsvImport(false)}
+        onImportSuccess={(res) => {
+          showToast(res.message);
+          fetchData();
+        }}
       />
 
       {/* Modal de Login si no está autenticado */}

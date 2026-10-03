@@ -84,7 +84,17 @@ export function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS ip_host_mappings (
+      ip TEXT PRIMARY KEY,
+      hostname TEXT NOT NULL COLLATE NOCASE,
+      pavilion TEXT,
+      laboratory TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_device_rules_hostname ON device_rules(hostname);
+    CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip);
+    CREATE INDEX IF NOT EXISTS idx_ip_host_mappings_ip ON ip_host_mappings(ip);
   `);
 
   // Migraciones automáticas para bases de datos existentes
@@ -99,37 +109,12 @@ export function initDatabase() {
     // La columna ya existe
   }
 
-  // Sembrar o actualizar favoritos con las URLs más usadas
-  const mostUsedUrls = [
-    { title: 'YouTube', url: 'youtube.com', category: 'Más Usadas', icon: 'youtube' },
-    { title: 'WhatsApp Web', url: 'web.whatsapp.com', category: 'Más Usadas', icon: 'message-circle' },
-    { title: 'TikTok', url: 'tiktok.com', category: 'Más Usadas', icon: 'music' },
-    { title: 'Facebook', url: 'facebook.com', category: 'Más Usadas', icon: 'share-2' },
-    { title: 'Instagram', url: 'instagram.com', category: 'Más Usadas', icon: 'camera' },
-    { title: 'ChatGPT', url: 'chatgpt.com', category: 'Más Usadas', icon: 'sparkles' },
-    { title: 'Netflix', url: 'netflix.com', category: 'Más Usadas', icon: 'tv' },
-    { title: 'Roblox', url: 'roblox.com', category: 'Más Usadas', icon: 'gamepad-2' },
-    { title: 'Wikipedia', url: 'wikipedia.org', category: 'Más Usadas', icon: 'book-open' },
-    { title: 'Google', url: 'google.com', category: 'Más Usadas', icon: 'search' },
-    { title: 'Twitch', url: 'twitch.tv', category: 'Más Usadas', icon: 'video' },
-    { title: 'X (Twitter)', url: 'x.com', category: 'Más Usadas', icon: 'twitter' },
-    { title: 'Spotify', url: 'spotify.com', category: 'Más Usadas', icon: 'headphones' },
-    { title: 'Poki', url: 'poki.com', category: 'Más Usadas', icon: 'joystick' },
-    { title: 'Canva', url: 'canva.com', category: 'Más Usadas', icon: 'palette' }
-  ];
-
-  const insertFav = db.prepare(`
-    INSERT OR REPLACE INTO favorites (title, url, category, icon)
-    VALUES (@title, @url, @category, @icon)
-  `);
-
-  const insertMany = db.transaction((favs) => {
-    for (const fav of favs) {
-      insertFav.run(fav);
-    }
-  });
-  insertMany(mostUsedUrls);
-  console.log(`[Base de Datos] Catálogo de URLs más usadas configurado (${mostUsedUrls.length} sitios).`);
+  // Asegurar que cualquier favorito de prueba previo sea purgado permanentemente
+  try {
+    db.exec("DELETE FROM favorites WHERE category != 'Frecuentes';");
+  } catch (err) {
+    // ignorar
+  }
 }
 
 export { db };

@@ -1,0 +1,234 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #070b14;
+  color: #f8fafc;
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Resplandor de fondo sutil institucional */
+.glow-bg {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(225, 29, 72, 0.15) 0%, rgba(14, 165, 233, 0.08) 50%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: blur(60px);
+}
+
+.card {
+  position: relative;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  border-radius: 24px;
+  max-width: 520px;
+  width: 100%;
+  padding: 2.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  z-index: 10;
+  animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.logo-wrapper {
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  background: rgba(225, 29, 72, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 8px 20px rgba(225, 29, 72, 0.2);
+}
+
+.logo-img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.badge-campus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  background: rgba(14, 165, 233, 0.1);
+  color: #38bdf8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  margin-bottom: 1rem;
+}
+
+.dot-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.75rem;
+}
+
+.domain-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.globe-icon {
+  font-size: 0.9rem;
+}
+
+.description {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin-bottom: 1.5rem;
+  max-width: 420px;
+}
+
+.meta-box {
+  width: 100%;
+  background: #141e33;
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.75rem;
+  text-align: left;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.meta-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.meta-value {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.text-amber {
+  color: #fbbf24;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.btn {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-size: 0.825rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: none;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: #e11d48;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);
+}
+
+.btn-primary:hover {
+  background: #be123c;
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+.btn-secondary:hover {
+  background: #283548;
+  color: #ffffff;
+}
+
+.footer-text {
+  margin-top: 1.75rem;
+  font-size: 0.7rem;
+  color: #475569;
+  line-height: 1.4;
+}
+
+.text-upc-red {
+  color: #ef4444;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}

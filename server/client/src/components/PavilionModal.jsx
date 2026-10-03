@@ -48,11 +48,11 @@ export default function PavilionModal({
             className={`cursor-pointer p-4 rounded-xl border transition-all flex items-center justify-between group ${
               selectedPavilion === 'ALL'
                 ? 'bg-brand-500/15 border-brand-500 shadow-md ring-1 ring-brand-500'
-                : 'bg-surface-elevated hover:bg-surface-highlight border-border hover:border-slate-600'
+                : 'bg-surface-elevated hover:bg-surface-highlight border-border hover:border-border-strong'
             }`}
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-brand-400 group-hover:scale-105 transition">
+              <div className="w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center text-brand-400 group-hover:scale-105 transition">
                 <Layers className="w-5 h-5" />
               </div>
               <div>
@@ -80,12 +80,12 @@ export default function PavilionModal({
                 className={`cursor-pointer p-4 rounded-xl border transition-all flex items-center justify-between group ${
                   isSelected
                     ? 'bg-brand-500/15 border-brand-500 shadow-md ring-1 ring-brand-500'
-                    : 'bg-surface-elevated hover:bg-surface-highlight border-border hover:border-slate-600'
+                    : 'bg-surface-elevated hover:bg-surface-highlight border-border hover:border-border-strong'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base transition group-hover:scale-105 ${
-                    isSelected ? 'bg-brand-500 text-white' : 'bg-slate-800 border border-slate-700 text-brand-400'
+                    isSelected ? 'bg-brand-500 text-white shadow-sm' : 'bg-surface border border-border text-brand-400'
                   }`}>
                     {pab.code.charAt(0)}
                   </div>

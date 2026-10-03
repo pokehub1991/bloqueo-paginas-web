@@ -22,11 +22,13 @@ export function parseAcademicLocation(hostname) {
     };
   }
 
-  const clean = hostname.trim().toUpperCase();
+  let clean = hostname.trim().toUpperCase();
+  // Quitar prefijos comunes como PC-, WS-, LAB-
+  clean = clean.replace(/^(PC|WS|LAB|EQUIPO)[-_]/, '');
 
   // Patrón universitario estándar: V + [Letra Pabellón] + [Número Aula] + '-' + [Número de Equipo]
-  // Ejemplos: VH101-01, VA108-05, VE201-12, VG104-25
-  const standardMatch = clean.match(/^V([A-Z])(\d+)(?:-(\w+))?$/);
+  // Ejemplos: VH101-01, VH101-PC01, VA108-05, VE201-12, VG104-25
+  const standardMatch = clean.match(/^V([A-Z])(\d+)(?:[-_](?:PC)?(\w+))?$/);
   if (standardMatch) {
     const pavilionLetter = standardMatch[1];
     if (ALLOWED_PAVILIONS.includes(pavilionLetter)) {
@@ -44,12 +46,12 @@ export function parseAcademicLocation(hostname) {
     }
   }
 
-  // Patrón alternativo directo: [Letra Pabellón] + [Número Aula] + '-' + [Número de Equipo]
-  const altMatch = clean.match(/^([A-Z])(\d{2,4})(?:-(\w+))?$/);
+  // Patrón alternativo directo: [Letra Pabellón] + [Número Aula] + '-' + [Número de Equipo] (ej: H101-01, H-101-01)
+  const altMatch = clean.match(/^([A-Z])[-_]?(\d{2,4})(?:[-_](?:PC)?(\w+))?$/);
   if (altMatch) {
     const pavilionLetter = altMatch[1];
     if (ALLOWED_PAVILIONS.includes(pavilionLetter)) {
-      const labCode = `${pavilionLetter}${altMatch[2]}`;
+      const labCode = `V${pavilionLetter}${altMatch[2]}`;
       return {
         pavilion: pavilionLetter,
         pavilionLabel: `Pabellón ${pavilionLetter}`,
