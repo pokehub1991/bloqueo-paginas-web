@@ -29,6 +29,7 @@ echo.
 :: -------------------------------------------------------------
 echo [+] Restaurando politicas de Google Chrome...
 reg delete "HKLM\SOFTWARE\Policies\Google\Chrome\URLBlocklist" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Google\Chrome" /v "IncognitoModeAvailability" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Google\Chrome" /v "DeveloperToolsAvailability" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Google\Chrome" /v "ExtensionInstallSources" /f >nul 2>&1
@@ -38,6 +39,7 @@ reg delete "HKLM\SOFTWARE\Policies\Google\Chrome" /v "ExtensionInstallSources" /
 :: -------------------------------------------------------------
 echo [+] Restaurando politicas de Microsoft Edge...
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge\URLBlocklist" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v "InPrivateModeAvailability" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v "DeveloperToolsAvailability" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v "ExtensionInstallSources" /f >nul 2>&1
@@ -47,6 +49,7 @@ reg delete "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v "ExtensionInstallSources" 
 :: -------------------------------------------------------------
 echo [+] Restaurando politicas de Brave Browser...
 reg delete "HKLM\SOFTWARE\Policies\BraveSoftware\Brave\URLBlocklist" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\Policies\BraveSoftware\Brave\ExtensionInstallForcelist" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\BraveSoftware\Brave" /v "IncognitoModeAvailability" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\Policies\BraveSoftware\Brave" /v "DeveloperToolsAvailability" /f >nul 2>&1
 
@@ -85,6 +88,7 @@ echo.
 echo ==============================================================
 echo   RESTAURACION COMPLETADA EXITOSAMENTE
 echo ==============================================================
+echo  - Se elimino la politica forzada de la extension (ExtensionInstallForcelist).
 echo  - Se restablecio el acceso libre a chrome://extensions y edge://extensions.
 echo  - Se reactivo el modo Incognito / InPrivate.
 echo  - Se reactivaron las herramientas de desarrollo (F12).
