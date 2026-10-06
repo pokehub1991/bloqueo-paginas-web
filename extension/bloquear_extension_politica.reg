@@ -1,0 +1,18 @@
+Windows Registry Editor Version 5.00
+
+; ==============================================================
+; UPC NetShield - Bloqueo Empresarial Forzado (Modo LanSchool)
+; ID Oficial: eijeibflalbhaehajeiiopcemmlhopih
+; ==============================================================
+
+; 1. Google Chrome (Fuerza instalacion, bloquea interruptor y quita boton Remove)
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
+"1"="eijeibflalbhaehajeiiopcemmlhopih;https://clients2.google.com/service/update2/crx"
+
+; 2. Microsoft Edge (Fuerza instalacion, bloquea interruptor y quita boton Remove)
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist]
+"1"="eijeibflalbhaehajeiiopcemmlhopih;https://clients2.google.com/service/update2/crx"
+
+; 3. Brave Browser
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\BraveSoftware\Brave\ExtensionInstallForcelist]
+"1"="eijeibflalbhaehajeiiopcemmlhopih;https://clients2.google.com/service/update2/crx"

@@ -3,15 +3,16 @@ setlocal enabledelayedexpansion
 chcp 65001 >nul
 title UPC NetShield - Instalador Chromium (Chrome / Edge / Brave / Opera)
 
-:: 1. Verificación y elevación automática a Administrador
-net session >nul 2>&1
+REM 1. Verificacion y elevacion segura a Administrador
+fltmc >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ==============================================================
-    echo  [AVISO] Se requieren permisos de Administrador para configurar
-    echo  las directivas de seguridad en navegadores Chromium.
-    echo ==============================================================
+    if "%~1"=="--elevated" (
+        echo [ERROR] No se pudieron obtener privilegios de Administrador.
+        pause
+        exit /b 1
+    )
     echo Solicitando elevacion de privilegios...
-    powershell -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\"\"' -Verb RunAs"
+    powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k cd /d \"\"%~dp0\"\" && \"\"%~f0\"\" --elevated' -Verb RunAs"
     exit /b
 )
 

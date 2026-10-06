@@ -3,15 +3,16 @@ setlocal
 chcp 65001 >nul
 title UPC NetShield - Desinstalador y Desbloqueador de Navegadores
 
-:: 1. Verificación y elevación automática a Administrador
-net session >nul 2>&1
+REM 1. Verificacion y elevacion segura a Administrador
+fltmc >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ==============================================================
-    echo  [AVISO] Se requieren permisos de Administrador para remover
-    echo  las directivas de proteccion en los navegadores.
-    echo ==============================================================
+    if "%~1"=="--elevated" (
+        echo [ERROR] No se pudieron obtener permisos de Administrador.
+        pause
+        exit /b 1
+    )
     echo Solicitando elevacion de privilegios...
-    powershell -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\"\"' -Verb RunAs"
+    powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k cd /d \"\"%~dp0\"\" && \"\"%~f0\"\" --elevated' -Verb RunAs"
     exit /b
 )
 
