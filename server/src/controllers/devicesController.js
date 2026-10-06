@@ -31,6 +31,16 @@ export function listDevices(req, res) {
       }
     }
 
+    const allIdentities = db.prepare(`
+      SELECT hostname, block_google_login, allowed_google_domains, block_incognito, clear_session_on_close, force_logout_trigger
+      FROM identity_policies
+    `).all();
+
+    const identMap = {};
+    for (const item of allIdentities) {
+      identMap[item.hostname.toUpperCase()] = item;
+    }
+
     const now = Date.now();
     let onlineCount = 0;
 
@@ -52,6 +62,7 @@ export function listDevices(req, res) {
       const devRules = rulesMap[h] || { blocked: [], allowed: [] };
       const hasAppliedRules = devRules.blocked.length > 0 || devRules.allowed.length > 0 || device.policy_mode === 'block_all';
       const policyMode = hasAppliedRules ? (device.policy_mode || 'block_list') : 'none';
+      const ident = identMap[h] || {};
 
       return {
         id: device.id,
@@ -67,11 +78,19 @@ export function listDevices(req, res) {
         laboratory: academic.laboratory,
         laboratoryLabel: academic.laboratoryLabel,
         station: academic.station,
-        // Reglas persistentes
+        // Reglas persistentes de navegación
         blockedUrls: devRules.blocked,
         allowedUrls: devRules.allowed,
         rulesCount: policyMode === 'allow_list' ? devRules.allowed.length : devRules.blocked.length,
-        notes: device.notes || ''
+        notes: device.notes || '',
+        // Subsistema de Identidad y Cuentas
+        identityPolicy: {
+          blockGoogleLogin: Boolean(ident.block_google_login),
+          allowedGoogleDomains: ident.allowed_google_domains || '',
+          blockIncognito: Boolean(ident.block_incognito),
+          clearSessionOnClose: Boolean(ident.clear_session_on_close),
+          forceLogoutTrigger: ident.force_logout_trigger || 0
+        }
       };
     });
 

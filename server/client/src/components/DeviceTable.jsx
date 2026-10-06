@@ -16,7 +16,10 @@ import {
   Building2,
   Pencil,
   Check,
-  X
+  X,
+  Lock,
+  EyeOff,
+  Sparkles
 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/api';
 
@@ -305,9 +308,26 @@ export default function DeviceTable({
                             )}
                           </div>
                         )}
-                        <span className="text-[11px] text-foreground-subtle tracking-normal">
-                          {device.os || 'Windows 11'}
-                        </span>
+                        <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                          <span className="text-[11px] text-foreground-subtle tracking-normal">
+                            {device.os || 'Windows 11'}
+                          </span>
+                          {device.identityPolicy?.blockGoogleLogin && (
+                            <span className="p-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20" title="Logins de Google bloqueados">
+                              <Lock className="w-2.5 h-2.5" />
+                            </span>
+                          )}
+                          {device.identityPolicy?.blockIncognito && (
+                            <span className="p-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Modo Incógnito restringido">
+                              <EyeOff className="w-2.5 h-2.5" />
+                            </span>
+                          )}
+                          {device.identityPolicy?.clearSessionOnClose && (
+                            <span className="p-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="Limpieza automática de cuentas al salir">
+                              <Sparkles className="w-2.5 h-2.5" />
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
 

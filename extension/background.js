@@ -1,11 +1,12 @@
 /**
  * UPC NetShield - Background Service Worker / Script
  * Compatible con Google Chrome, Microsoft Edge, Mozilla Firefox, Brave y Opera.
- * Gestiona la sincronización con el Dashboard y el bloqueo instantáneo en tiempo real.
+ * Gestiona la sincronización con el Dashboard, bloqueo instantáneo, y el subsistema
+ * de Seguridad de Cuentas, Perfiles e Incógnito (Google OAuth & Session Management).
  */
 
 const DEFAULT_SERVER_URL = 'http://10.142.240.190:5050';
-const DEFAULT_POLL_INTERVAL_SEC = 2;
+const DEFAULT_POLL_INTERVAL_SEC = 3;
 
 // --- DETECCIÓN DE ENTORNO Y NAVEGADOR ---
 function getBrowserName() {
@@ -35,6 +36,9 @@ async function getConfig() {
     'policyMode',
     'blockedUrls',
     'allowedUrls',
+    'identityPolicy',
+    'policyHash',
+    'lastLogoutTrigger',
     'isConnected',
     'lastSyncTime',
     'lastError'
@@ -53,6 +57,15 @@ async function getConfig() {
     policyMode: data.policyMode || 'block_list',
     blockedUrls: data.blockedUrls || [],
     allowedUrls: data.allowedUrls || [],
+    identityPolicy: data.identityPolicy || {
+      blockGoogleLogin: false,
+      allowedGoogleDomains: '',
+      blockIncognito: false,
+      clearSessionOnClose: false,
+      forceLogoutTrigger: 0
+    },
+    policyHash: data.policyHash || null,
+    lastLogoutTrigger: data.lastLogoutTrigger || 0,
     isConnected: !!data.isConnected,
     lastSyncTime: data.lastSyncTime || null,
     lastError: data.lastError || null
@@ -96,8 +109,72 @@ function isInternalOrServerUrl(targetUrl, serverUrl) {
   return false;
 }
 
+// --- SUBSISTEMA DE PURGA DE SESIONES Y CREDENCIALES ---
+async function purgePersonalSessions() {
+  console.log('[UPC NetShield] ⚡ Ejecutando purga inmediata de sesiones y credenciales de usuario...');
+
+  const targetOrigins = [
+    'https://accounts.google.com',
+    'https://google.com',
+    'https://myaccount.google.com',
+    'https://mail.google.com',
+    'https://drive.google.com',
+    'https://youtube.com',
+    'https://login.microsoftonline.com',
+    'https://login.live.com',
+    'https://outlook.office.com',
+    'https://outlook.live.com'
+  ];
+
+  const targetDomains = [
+    'google.com',
+    'accounts.google.com',
+    'youtube.com',
+    'live.com',
+    'login.microsoftonline.com',
+    'login.live.com',
+    'microsoft.com',
+    'office.com'
+  ];
+
+  // 1. Limpieza a través de chrome.browsingData si está soportado
+  if (chrome.browsingData && chrome.browsingData.remove) {
+    try {
+      await chrome.browsingData.remove({
+        origins: targetOrigins
+      }, {
+        cookies: true,
+        localStorage: true,
+        indexedDB: true,
+        cache: true,
+        serviceWorkers: true
+      });
+      console.log('[UPC NetShield] browsingData purgado exitosamente.');
+    } catch (bErr) {
+      console.warn('[UPC NetShield] Aviso browsingData:', bErr.message);
+    }
+  }
+
+  // 2. Limpieza exhaustiva de cookies por dominio
+  if (chrome.cookies && chrome.cookies.getAll) {
+    for (const domain of targetDomains) {
+      try {
+        const cookies = await chrome.cookies.getAll({ domain });
+        for (const c of cookies) {
+          const protocol = c.secure ? 'https:' : 'http:';
+          const domainUrl = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
+          const url = `${protocol}//${domainUrl}${c.path}`;
+          chrome.cookies.remove({ url, name: c.name }).catch(() => {});
+        }
+      } catch (cErr) {
+        // Ignorar dominios sin cookies
+      }
+    }
+  }
+}
+
 // --- ACTUALIZACIÓN DE REGLAS NATIVAS DE NAVEGACIÓN (declarativeNetRequest) ---
-async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serverUrl) {
+async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serverUrl, identityPolicy = {}) {
   try {
     const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
     const removeRuleIds = existingRules.map(r => r.id);
@@ -105,7 +182,6 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
     const newRules = [];
     let ruleId = 1;
 
-    const blockedPagePath = chrome.runtime.getURL('blocked.html');
     let srvHost = '';
     try {
       srvHost = new URL(serverUrl).hostname;
@@ -114,8 +190,62 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
     const essentialDomains = ['localhost', '127.0.0.1'];
     if (srvHost) essentialDomains.push(srvHost);
 
+    // =========================================================================
+    // REGLAS DEL SUBSISTEMA DE IDENTIDADES (Prioridad Alta: 20-25)
+    // =========================================================================
+
+    // 1. Bloqueo de inicio de sesión con cuentas personales en Google
+    if (identityPolicy.blockGoogleLogin) {
+      const googleAuthEndpoints = [
+        'accounts.google.com/signin/*',
+        'accounts.google.com/ServiceLogin*',
+        'accounts.google.com/o/oauth2/*'
+      ];
+
+      for (const endpoint of googleAuthEndpoints) {
+        newRules.push({
+          id: ruleId++,
+          priority: 25,
+          action: {
+            type: 'redirect',
+            redirect: { extensionPath: '/blocked_auth.html' }
+          },
+          condition: {
+            urlFilter: `||${endpoint}`,
+            resourceTypes: ['main_frame', 'sub_frame']
+          }
+        });
+      }
+    }
+
+    // 2. Restricción de dominios permitidos de Google Workspace (Header Injection)
+    if (identityPolicy.allowedGoogleDomains && identityPolicy.allowedGoogleDomains.trim()) {
+      const allowedDomainsList = identityPolicy.allowedGoogleDomains.trim();
+      newRules.push({
+        id: ruleId++,
+        priority: 20,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            {
+              header: 'X-GoogApps-Allowed-Domains',
+              operation: 'set',
+              value: allowedDomainsList
+            }
+          ]
+        },
+        condition: {
+          urlFilter: '||google.com',
+          resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest']
+        }
+      });
+    }
+
+    // =========================================================================
+    // REGLAS GENERALES DE NAVEGACIÓN (Prioridad 1-5)
+    // =========================================================================
+
     if (policyMode === 'block_all') {
-      // Regla 1: Redirigir toda navegación principal a blocked.html
       newRules.push({
         id: ruleId++,
         priority: 1,
@@ -129,7 +259,6 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
         }
       });
 
-      // Regla 2: Bloquear subrecursos externos
       newRules.push({
         id: ruleId++,
         priority: 1,
@@ -140,11 +269,10 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
         }
       });
 
-      // Excepciones permitidas (servidor local y extensiones)
       for (const host of essentialDomains) {
         newRules.push({
           id: ruleId++,
-          priority: 2,
+          priority: 5,
           action: { type: 'allow' },
           condition: {
             urlFilter: `||${host}`,
@@ -154,7 +282,6 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
       }
 
     } else if (policyMode === 'allow_list') {
-      // Bloquear todo por defecto
       newRules.push({
         id: ruleId++,
         priority: 1,
@@ -178,11 +305,10 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
         }
       });
 
-      // Permitir esenciales
       for (const host of essentialDomains) {
         newRules.push({
           id: ruleId++,
-          priority: 2,
+          priority: 5,
           action: { type: 'allow' },
           condition: {
             urlFilter: `||${host}`,
@@ -191,7 +317,6 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
         });
       }
 
-      // Permitir dominios de la lista autorizada
       const allowedDomains = new Set();
       for (const u of allowedUrls) {
         const dom = cleanDomain(u);
@@ -201,7 +326,7 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
       for (const dom of allowedDomains) {
         newRules.push({
           id: ruleId++,
-          priority: 2,
+          priority: 5,
           action: { type: 'allow' },
           condition: {
             urlFilter: `||${dom}`,
@@ -211,7 +336,6 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
       }
 
     } else if (policyMode === 'block_list') {
-      // Bloquear solo los dominios de la lista restringida
       const domainsToBlock = new Set();
       for (const u of blockedUrls) {
         const dom = cleanDomain(u);
@@ -221,10 +345,9 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
       }
 
       for (const dom of domainsToBlock) {
-        // Redirigir frame principal a página de bloqueo con info
         newRules.push({
           id: ruleId++,
-          priority: 1,
+          priority: 2,
           action: {
             type: 'redirect',
             redirect: { extensionPath: `/blocked.html?domain=${encodeURIComponent(dom)}&reason=block_list` }
@@ -235,10 +358,9 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
           }
         });
 
-        // Cortar peticiones AJAX / websockets / video streaming
         newRules.push({
           id: ruleId++,
-          priority: 1,
+          priority: 2,
           action: { type: 'block' },
           condition: {
             urlFilter: `||${dom}`,
@@ -253,33 +375,38 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
       addRules: newRules
     });
 
+    console.log(`[UPC NetShield] Reglas declarativas actualizadas. Total activas: ${newRules.length}`);
   } catch (err) {
-    console.error('[NetShield] Error actualizando reglas declarativas:', err);
+    console.error('[UPC NetShield] Error al actualizar reglas declarativas:', err);
   }
 }
 
-// --- APLICACIÓN INMEDIATA EN PESTAÑAS ACTIVAS (SIN REINICIAR NAVEGADOR) ---
-async function enforceActiveTabs(policyMode, blockedUrls, allowedUrls, serverUrl) {
+// --- REDIRECCIÓN INMEDIATA DE PESTAÑAS ACTIVAS ABIERTAS ---
+async function enforceActiveTabs(policyMode, blockedUrls, allowedUrls, serverUrl, identityPolicy = {}) {
   try {
     const tabs = await chrome.tabs.query({});
     const blockedPageUrl = chrome.runtime.getURL('blocked.html');
+    const blockedAuthUrl = chrome.runtime.getURL('blocked_auth.html');
 
     for (const tab of tabs) {
-      if (!tab.url || 
-          tab.url.startsWith('chrome://') || 
-          tab.url.startsWith('edge://') || 
-          tab.url.startsWith('about:') || 
-          tab.url.startsWith('chrome-extension://') ||
-          tab.url.startsWith(blockedPageUrl)) {
+      if (!tab.url) continue;
+      const url = tab.url;
+
+      if (url.startsWith('chrome://') || url.startsWith('edge://') || url.startsWith('about:') || 
+          url.startsWith('chrome-extension://') || isInternalOrServerUrl(url, serverUrl)) {
         continue;
       }
 
-      const host = extractHostFromUrl(tab.url);
+      // 1. Si intenta estar en endpoints de login de Google con la política activa
+      if (identityPolicy.blockGoogleLogin && url.includes('accounts.google.com/')) {
+        if (url.includes('/signin/') || url.includes('/ServiceLogin') || url.includes('/oauth2/')) {
+          await chrome.tabs.update(tab.id, { url: blockedAuthUrl }).catch(() => {});
+          continue;
+        }
+      }
+
+      const host = extractHostFromUrl(url);
       if (!host) continue;
-
-      if (isInternalOrServerUrl(tab.url, serverUrl)) {
-        continue;
-      }
 
       let shouldBlock = false;
       let reasonParam = '';
@@ -308,9 +435,7 @@ async function enforceActiveTabs(policyMode, blockedUrls, allowedUrls, serverUrl
         const redirectUrl = `${blockedPageUrl}?domain=${encodeURIComponent(domainParam)}&reason=${encodeURIComponent(reasonParam)}`;
         try {
           await chrome.tabs.update(tab.id, { url: redirectUrl });
-        } catch (tabErr) {
-          // Ignorar pestañas cerradas
-        }
+        } catch (tabErr) {}
       }
     }
   } catch (err) {
@@ -318,7 +443,59 @@ async function enforceActiveTabs(policyMode, blockedUrls, allowedUrls, serverUrl
   }
 }
 
-// --- SINCRONIZACIÓN CON EL SERVIDOR CENTRAL (HEARTBEAT) ---
+// --- GUARDIÁN DE MODO INCÓGNITO ---
+function setupIncognitoGuard() {
+  chrome.tabs.onCreated.addListener(async (tab) => {
+    try {
+      if (!tab.incognito) return;
+      const config = await getConfig();
+      if (config.identityPolicy?.blockIncognito) {
+        console.log('[UPC NetShield] 🕶️ Pestaña en modo incógnito detectada y cerrada por política.');
+        if (tab.id) {
+          await chrome.tabs.remove(tab.id).catch(() => {});
+        }
+
+        // Crear aviso en ventana normal
+        const windows = await chrome.windows.getAll();
+        const normalWin = windows.find(w => !w.incognito);
+        if (normalWin) {
+          await chrome.tabs.create({
+            windowId: normalWin.id,
+            url: chrome.runtime.getURL('blocked_auth.html')
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  });
+
+  chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    try {
+      if (tab.incognito) {
+        const config = await getConfig();
+        if (config.identityPolicy?.blockIncognito) {
+          await chrome.tabs.remove(tabId).catch(() => {});
+        }
+      }
+    } catch {}
+  });
+}
+
+// --- GUARDIÁN DE CIERRE DE SESIONES AL SALIR ---
+function setupClearOnCloseGuard() {
+  chrome.windows.onRemoved.addListener(async () => {
+    try {
+      const remainingWindows = await chrome.windows.getAll();
+      if (remainingWindows.length === 0) {
+        const config = await getConfig();
+        if (config.identityPolicy?.clearSessionOnClose) {
+          await purgePersonalSessions();
+        }
+      }
+    } catch {}
+  });
+}
+
+// --- SINCRONIZACIÓN CON EL SERVIDOR CENTRAL (HEARTBEAT CON JITTER & ETAG) ---
 let isSyncing = false;
 
 async function syncWithServer() {
@@ -332,7 +509,8 @@ async function syncWithServer() {
     const payload = {
       hostname: config.hostname,
       os: `${getOSName()} (${getBrowserName()} Ext)`,
-      ip: ''
+      ip: '',
+      policyHash: config.policyHash || null
     };
 
     const controller = new AbortController();
@@ -353,33 +531,68 @@ async function syncWithServer() {
     }
 
     const data = await res.json();
+
+    // 1. Manejo de respuesta Not Modified (Alta eficiencia en 1,000+ equipos)
+    if (data.notModified) {
+      const incomingTrigger = Number(data.forceLogoutTrigger || 0);
+      const currentTrigger = Number(config.lastLogoutTrigger || 0);
+
+      if (incomingTrigger > currentTrigger) {
+        console.log(`[UPC NetShield] ⚡ Orden remota de cierre de sesión recibida (Trigger: ${incomingTrigger})`);
+        await purgePersonalSessions();
+        await chrome.storage.local.set({ lastLogoutTrigger: incomingTrigger });
+      }
+
+      await chrome.storage.local.set({
+        isConnected: true,
+        lastSyncTime: new Date().toLocaleTimeString(),
+        lastError: null
+      });
+      return;
+    }
+
+    // 2. Respuesta completa con nuevas políticas
     const policyMode = data.policyMode || 'block_list';
     const blockedUrls = data.blockedUrls || [];
     const allowedUrls = data.allowedUrls || [];
+    const identityPolicy = data.identityPolicy || {
+      blockGoogleLogin: false,
+      allowedGoogleDomains: '',
+      blockIncognito: false,
+      clearSessionOnClose: false,
+      forceLogoutTrigger: 0
+    };
+    const incomingHash = data.policyHash || null;
 
-    // Si el servidor resolvió o actualizó el nombre de este equipo (por DNS/NetBIOS o desde el dashboard)
+    // Actualizar hostname asignado por servidor
     if (data.hostname && data.hostname !== config.hostname) {
-      console.log(`[NetShield] Nombre de equipo asignado por servidor: ${data.hostname}`);
+      console.log(`[UPC NetShield] Hostname asignado por catálogo: ${data.hostname}`);
       await chrome.storage.local.set({ hostname: data.hostname });
       config.hostname = data.hostname;
     }
 
-    // Comprobar si hubo cambios en la directiva
-    const currentKey = `${policyMode}|${blockedUrls.join(',')}|${allowedUrls.join(',')}`;
-    const prevKey = `${config.policyMode}|${config.blockedUrls.join(',')}|${config.allowedUrls.join(',')}`;
+    // Comprobar orden forzada de cierre de sesión inmediata
+    const incomingTrigger = Number(identityPolicy.forceLogoutTrigger || 0);
+    const currentTrigger = Number(config.lastLogoutTrigger || 0);
 
-    if (currentKey !== prevKey || !config.isConnected) {
-      // 1. Actualizar motor declarativo de la extensión
-      await updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, config.serverUrl);
+    if (incomingTrigger > currentTrigger) {
+      console.log(`[UPC NetShield] ⚡ Orden remota de cierre de sesión detectada (Trigger: ${incomingTrigger})`);
+      await purgePersonalSessions();
+    }
 
-      // 2. Interceptar al instante cualquier pestaña activa que esté en un sitio prohibido
-      await enforceActiveTabs(policyMode, blockedUrls, allowedUrls, config.serverUrl);
+    // Actualizar reglas declarativas si hubo cambios
+    if (incomingHash !== config.policyHash || !config.isConnected) {
+      await updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, config.serverUrl, identityPolicy);
+      await enforceActiveTabs(policyMode, blockedUrls, allowedUrls, config.serverUrl, identityPolicy);
     }
 
     await chrome.storage.local.set({
       policyMode,
       blockedUrls,
       allowedUrls,
+      identityPolicy,
+      policyHash: incomingHash,
+      lastLogoutTrigger: incomingTrigger,
       ip: data.ip || '',
       isConnected: true,
       lastSyncTime: new Date().toLocaleTimeString(),
@@ -396,16 +609,24 @@ async function syncWithServer() {
   }
 }
 
+// Iniciar guardianes de seguridad
+setupIncognitoGuard();
+setupClearOnCloseGuard();
+
 // --- CONFIGURACIÓN DE ALARMAS Y EVENTOS ---
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log('[NetShield] Extensión instalada. Iniciando agente...');
+  console.log('[UPC NetShield] Extensión instalada. Iniciando servicios...');
   await syncWithServer();
   chrome.alarms.create('netshield-heartbeat', {
-    periodInMinutes: 0.05 // aprox cada 3 segundos
+    periodInMinutes: 0.05
   });
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  const config = await getConfig();
+  if (config.identityPolicy?.clearSessionOnClose) {
+    await purgePersonalSessions();
+  }
   await syncWithServer();
 });
 
@@ -415,53 +636,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// Bucle en memoria continuo para máxima respuesta (cada 2.5s)
-setInterval(() => {
-  syncWithServer();
-}, DEFAULT_POLL_INTERVAL_SEC * 1000);
-
-// --- NAVEGACIÓN EN TIEMPO REAL (RESPALDO ADICIONAL) ---
-chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
-  if (details.frameId !== 0) return; // Solo frame principal
-  const url = details.url;
-  if (!url || url.startsWith('chrome://') || url.startsWith('edge://') || url.startsWith('about:') || url.startsWith('chrome-extension://')) {
-    return;
-  }
-
-  const config = await getConfig();
-  if (isInternalOrServerUrl(url, config.serverUrl)) return;
-
-  const host = extractHostFromUrl(url);
-  if (!host) return;
-
-  let block = false;
-  let reason = '';
-
-  if (config.policyMode === 'block_all') {
-    block = true;
-    reason = 'all';
-  } else if (config.policyMode === 'allow_list') {
-    const allowed = config.allowedUrls.map(u => cleanDomain(u));
-    const isOk = allowed.some(a => host === a || host.endsWith(`.${a}`));
-    if (!isOk) {
-      block = true;
-      reason = 'not_allowed';
-    }
-  } else if (config.policyMode === 'block_list') {
-    const blocked = config.blockedUrls.map(u => cleanDomain(u));
-    const isBad = blocked.some(b => host === b || host.endsWith(`.${b}`));
-    if (isBad) {
-      block = true;
-      reason = 'block_list';
-    }
-  }
-
-  if (block) {
-    const blockedPageUrl = chrome.runtime.getURL('blocked.html') + 
-      `?domain=${encodeURIComponent(host)}&reason=${encodeURIComponent(reason)}`;
-    chrome.tabs.update(details.tabId, { url: blockedPageUrl });
-  }
-});
+// Bucle en memoria con jitter para evitar saturación de red en 1,000+ máquinas
+function scheduleNextPoll() {
+  const jitterMs = Math.floor(Math.random() * 800) - 400; // ±400ms
+  const intervalMs = Math.max(2000, (DEFAULT_POLL_INTERVAL_SEC * 1000) + jitterMs);
+  setTimeout(async () => {
+    await syncWithServer();
+    scheduleNextPoll();
+  }, intervalMs);
+}
+scheduleNextPoll();
 
 // Mensajería con el Popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -469,7 +653,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     syncWithServer().then(() => {
       getConfig().then(cfg => sendResponse({ success: true, config: cfg }));
     });
-    return true; // Asíncrono
+    return true;
+  } else if (request.action === 'purgeSessions') {
+    purgePersonalSessions().then(() => {
+      sendResponse({ success: true, message: 'Sesiones purgadas.' });
+    });
+    return true;
   } else if (request.action === 'updateSettings') {
     chrome.storage.local.set(request.payload).then(() => {
       syncWithServer().then(() => {

@@ -27,7 +27,9 @@
     "storage",
     "alarms",
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "browsingData",
+    "cookies"
   ],
   "host_permissions": [
     "http://*/*",
@@ -39,6 +41,9 @@
         "blocked.html",
         "blocked.css",
         "blocked.js",
+        "blocked_auth.html",
+        "blocked_auth.css",
+        "blocked_auth.js",
         "icons/*"
       ],
       "matches": [

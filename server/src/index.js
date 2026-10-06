@@ -12,6 +12,7 @@ import agentRoutes from './routes/agent.js';
 import devicesRoutes from './routes/devices.js';
 import favoritesRoutes from './routes/favorites.js';
 import systemRoutes from './routes/system.js';
+import identityRoutes from './routes/identity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +43,7 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/devices', devicesRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/system', systemRoutes);
+app.use('/api/identity', identityRoutes);
 
 // Servir frontend compilado (Vite dist) en producción
 const clientDistPath = path.resolve(__dirname, '../client/dist');

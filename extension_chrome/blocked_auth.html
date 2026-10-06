@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso a Cuenta Restringido · UPC NetShield</title>
+  <link rel="stylesheet" href="blocked_auth.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+
+  <main class="card">
+    <!-- Header Institucional -->
+    <div class="logo-wrapper">
+      <img src="icons/logo.png" alt="UPC" class="logo-img">
+    </div>
+
+    <div class="badge-campus">
+      <span class="dot-status"></span>
+      <span>UPC NetShield · Privacidad de Aula</span>
+    </div>
+
+    <h1 class="title">Inicio de Sesión Restringido</h1>
+
+    <div class="security-chip">
+      <span class="lock-icon">🔒</span>
+      <span id="domainNotice">Cuentas Personales Deshabilitadas</span>
+    </div>
+
+    <p class="description" id="explanationText">
+      El inicio de sesión con cuentas personales de Google o externas está restringido en este equipo para proteger tu privacidad y evitar que tus correos personales, archivos y contraseñas queden expuestos al siguiente usuario de la computadora.
+    </p>
+
+    <div class="allowed-domain-box" id="allowedDomainBox" style="display: none;">
+      <span class="check-icon">✓</span>
+      <span id="allowedDomainText">Solo se permiten cuentas institucionales oficiales (@upc.edu.pe)</span>
+    </div>
+
+    <!-- Metadatos de la estación -->
+    <div class="meta-box">
+      <div class="meta-row">
+        <span class="meta-label">Estación de trabajo:</span>
+        <span class="meta-value" id="hostnameText">PC-LAB</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Política activa:</span>
+        <span class="meta-value text-indigo" id="policyText">Protección de Cuentas</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Motivo de seguridad:</span>
+        <span class="meta-value">Prevención de fuga de datos</span>
+      </div>
+    </div>
+
+    <!-- Botones de acción -->
+    <div class="actions">
+      <button class="btn btn-primary" id="btnUnderstood">
+        Entendido
+      </button>
+      <button class="btn btn-secondary" id="btnBack">
+        Volver a la página anterior
+      </button>
+    </div>
+
+    <footer class="footer-text">
+      UPC NetShield · Sistema de Seguridad y Gestión de Laboratorios
+    </footer>
+  </main>
+
+  <script src="blocked_auth.js"></script>
+</body>
+</html>

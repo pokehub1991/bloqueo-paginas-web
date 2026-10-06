@@ -159,6 +159,29 @@ export const api = {
   // Sistema
   getSystemInfo: async () => {
     return request('/system/info');
+  },
+
+  // Seguridad de Identidad, Cuentas y Sesiones
+  getIdentityPolicies: async () => {
+    return request('/identity/policies');
+  },
+
+  updateIdentityPolicies: async (hostnames, policies) => {
+    return request('/identity/policies', {
+      method: 'POST',
+      body: JSON.stringify({ hostnames, ...policies })
+    });
+  },
+
+  forceLogout: async (hostnames = []) => {
+    return request('/identity/force-logout', {
+      method: 'POST',
+      body: JSON.stringify({ hostnames })
+    });
+  },
+
+  getIdentityStats: async () => {
+    return request('/identity/stats');
   }
 };
 

@@ -38,6 +38,7 @@ try {
   };
 
   db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
   console.log(`[Base de Datos] SQLite nativo (node:sqlite) conectado en: ${DB_PATH}`);
 } catch (nativeErr) {
   // Fallback transparente para Node.js 20 o entornos con better-sqlite3
@@ -45,6 +46,7 @@ try {
     const { default: Database } = await import('better-sqlite3');
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
     console.log(`[Base de Datos] SQLite (better-sqlite3) conectado en: ${DB_PATH}`);
   } catch (betterErr) {
     console.error('[Base de Datos] Error al abrir SQLite:', betterErr.message);
@@ -92,9 +94,20 @@ export function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS identity_policies (
+      hostname TEXT PRIMARY KEY COLLATE NOCASE,
+      block_google_login BOOLEAN DEFAULT 0,
+      allowed_google_domains TEXT DEFAULT '',
+      block_incognito BOOLEAN DEFAULT 0,
+      clear_session_on_close BOOLEAN DEFAULT 0,
+      force_logout_trigger INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_device_rules_hostname ON device_rules(hostname);
     CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip);
     CREATE INDEX IF NOT EXISTS idx_ip_host_mappings_ip ON ip_host_mappings(ip);
+    CREATE INDEX IF NOT EXISTS idx_identity_policies_hostname ON identity_policies(hostname);
   `);
 
   // Migraciones automáticas para bases de datos existentes

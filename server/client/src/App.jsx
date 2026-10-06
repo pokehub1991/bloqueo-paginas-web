@@ -4,16 +4,19 @@ import {
   HelpCircle, 
   Laptop, 
   LogOut, 
-  Building2,
+  Building2, 
   CheckCircle2, 
-  AlertCircle,
-  Upload
+  AlertCircle, 
+  Upload,
+  Globe,
+  Lock
 } from 'lucide-react';
 
 import { api, getAuthToken } from './lib/api';
 import PavilionSelector from './components/PavilionSelector';
 import DeviceTable from './components/DeviceTable';
 import SidebarControl from './components/SidebarControl';
+import IdentitySecurityView from './components/IdentitySecurityView';
 import PavilionModal from './components/PavilionModal';
 import OnboardingModal from './components/OnboardingModal';
 import LoginModal from './components/LoginModal';
@@ -36,6 +39,9 @@ export default function App() {
   const [onlineCount, setOnlineCount] = useState(0);
   const [systemInfo, setSystemInfo] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+
+  // Modo de vista actual
+  const [activeTab, setActiveTab] = useState('navigation'); // 'navigation' | 'identity'
 
   // Selección de equipos
   const [selectedHostnames, setSelectedHostnames] = useState([]);
@@ -386,7 +392,49 @@ export default function App() {
     }
   };
 
+  // Aplicar políticas de identidad y sesiones
+  const handleApplyIdentityPolicies = async ({ hostnames, updates }) => {
+    if (!hostnames || hostnames.length === 0) {
+      showToast('Selecciona al menos una computadora.', 'warning');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await api.updateIdentityPolicies(hostnames, updates);
+      showToast(`Políticas de identidad actualizadas en ${hostnames.length} equipo(s).`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Forzar cierre de sesión inmediato en equipos
+  const handleForceLogout = async (hostnames) => {
+    if (!hostnames || hostnames.length === 0) {
+      showToast('Selecciona equipos para cerrar sesiones.', 'warning');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await api.forceLogout(hostnames);
+      showToast(`Cierre de sesión ordenado para ${hostnames.length} equipo(s).`);
+      await fetchData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const totalRulesCount = devices.reduce((acc, d) => acc + (d.rulesCount || 0), 0);
+  const protectedCount = devices.filter(d => 
+    d.identityPolicy?.block_google_login || 
+    d.identityPolicy?.block_incognito || 
+    d.identityPolicy?.clear_session_on_close ||
+    d.identityPolicy?.allowed_google_domains
+  ).length;
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
@@ -492,63 +540,124 @@ export default function App() {
         </div>
       </header>
 
-      {/* Contenido Principal: Compacto directamente a la tabla sin descripciones redundantes */}
+      {/* Contenido Principal con selector de pestaña modular */}
       <main className="flex-1 w-[95%] max-w-[98%] mx-auto py-4 space-y-4">
-        {/* Selector y Navegación de Pabellones y Laboratorios (A, E, G, H y Sin asignar) */}
-        <PavilionSelector
-          pavilions={pavilions}
-          laboratories={laboratories}
-          selectedPavilion={selectedPavilion}
-          selectedLab={selectedLab}
-          onSelectPavilion={(code) => {
-            setSelectedPavilion(code);
-            setSelectedLab('ALL');
-          }}
-          onSelectLab={setSelectedLab}
-          onSelectWholeLab={handleSelectWholeLab}
-          onDeleteLab={handleRequestDeleteLab}
-          totalDevices={devices.length}
-          totalOnline={onlineCount}
-        />
+        {/* Selector de Módulo / Pestañas de Vista */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface/80 backdrop-blur-md p-1.5 rounded-2xl border border-border shadow-sm">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('navigation')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer ${
+                activeTab === 'navigation'
+                  ? 'bg-brand-500 text-white shadow-lg shadow-brand-500/20'
+                  : 'text-foreground-muted hover:text-white hover:bg-surface-elevated'
+              }`}
+            >
+              <Globe className="w-4 h-4" />
+              <span>Control de Navegación y Sitios</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                activeTab === 'navigation' ? 'bg-white/20 text-white' : 'bg-surface-elevated text-foreground-muted'
+              }`}>
+                {totalRulesCount} reglas
+              </span>
+            </button>
 
-        {/* Layout en 2 Columnas: Izquierda (Tabla) + Derecha (Sidebar Sticky de Reglas) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Columna Izquierda: Tabla de Equipos con Paginación (Máx 50) y Métricas de Hero en el Pie */}
-          <div className="lg:col-span-8 space-y-4">
-            <DeviceTable
-              devices={filteredDevices}
-              selectedHostnames={selectedHostnames}
-              onToggleSelect={handleToggleSelect}
-              onSelectAll={handleSelectAll}
-              onRefresh={fetchData}
-              onRenameDevice={handleRenameDevice}
-              onDeleteDevice={handleRequestDeleteDevice}
-              onDeleteSelected={handleRequestDeleteSelected}
-              isLoading={isLoading}
-              totalOnline={onlineCount}
-              pavilionsCount={pavilions.length}
-              totalRulesCount={totalRulesCount}
-            />
+            <button
+              onClick={() => setActiveTab('identity')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition active:scale-95 cursor-pointer ${
+                activeTab === 'identity'
+                  ? 'bg-brand-500 text-white shadow-lg shadow-brand-500/20'
+                  : 'text-foreground-muted hover:text-white hover:bg-surface-elevated'
+              }`}
+            >
+              <Lock className="w-4 h-4" />
+              <span>Seguridad de Cuentas y Privacidad</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                activeTab === 'identity' ? 'bg-white/20 text-white' : 'bg-surface-elevated text-foreground-muted'
+              }`}>
+                {protectedCount} protegidos
+              </span>
+            </button>
           </div>
 
-          {/* Columna Derecha: Sidebar Sticky "Reglas" siempre visible pegado a la parte superior al scrollear */}
-          <div className="lg:col-span-4">
-            <div className="sticky top-20">
-              <SidebarControl
-                selectedHostnames={selectedHostnames}
-                devices={filteredDevices}
-                favorites={favorites}
-                onApplyPolicy={handleApplyPolicy}
-                onAddUrlToSelected={handleAddUrlToSelected}
-                onRemoveRuleUrl={handleRemoveRuleUrl}
-                onUpdateRuleUrl={handleUpdateRuleUrl}
-                onUnblockSelected={() => handleUnblock(selectedHostnames)}
-                onSelectAllVisible={handleSelectAllVisible}
-                isLoading={isLoading}
-              />
-            </div>
+          <div className="text-right px-3 hidden sm:block">
+            <span className="text-[11px] text-foreground-muted font-medium">
+              Sincronización masiva instantánea para 1,000+ computadoras
+            </span>
           </div>
         </div>
+
+        {activeTab === 'navigation' ? (
+          <>
+            {/* Selector y Navegación de Pabellones y Laboratorios (A, E, G, H y Sin asignar) */}
+            <PavilionSelector
+              pavilions={pavilions}
+              laboratories={laboratories}
+              selectedPavilion={selectedPavilion}
+              selectedLab={selectedLab}
+              onSelectPavilion={(code) => {
+                setSelectedPavilion(code);
+                setSelectedLab('ALL');
+              }}
+              onSelectLab={setSelectedLab}
+              onSelectWholeLab={handleSelectWholeLab}
+              onDeleteLab={handleRequestDeleteLab}
+              totalDevices={devices.length}
+              totalOnline={onlineCount}
+            />
+
+            {/* Layout en 2 Columnas: Izquierda (Tabla) + Derecha (Sidebar Sticky de Reglas) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              {/* Columna Izquierda: Tabla de Equipos con Paginación (Máx 50) y Métricas de Hero en el Pie */}
+              <div className="lg:col-span-8 space-y-4">
+                <DeviceTable
+                  devices={filteredDevices}
+                  selectedHostnames={selectedHostnames}
+                  onToggleSelect={handleToggleSelect}
+                  onSelectAll={handleSelectAll}
+                  onRefresh={fetchData}
+                  onRenameDevice={handleRenameDevice}
+                  onDeleteDevice={handleRequestDeleteDevice}
+                  onDeleteSelected={handleRequestDeleteSelected}
+                  isLoading={isLoading}
+                  totalOnline={onlineCount}
+                  pavilionsCount={pavilions.length}
+                  totalRulesCount={totalRulesCount}
+                />
+              </div>
+
+              {/* Columna Derecha: Sidebar Sticky "Reglas" siempre visible pegado a la parte superior al scrollear */}
+              <div className="lg:col-span-4">
+                <div className="sticky top-20">
+                  <SidebarControl
+                    selectedHostnames={selectedHostnames}
+                    devices={filteredDevices}
+                    favorites={favorites}
+                    onApplyPolicy={handleApplyPolicy}
+                    onAddUrlToSelected={handleAddUrlToSelected}
+                    onRemoveRuleUrl={handleRemoveRuleUrl}
+                    onUpdateRuleUrl={handleUpdateRuleUrl}
+                    onUnblockSelected={() => handleUnblock(selectedHostnames)}
+                    onSelectAllVisible={handleSelectAllVisible}
+                    isLoading={isLoading}
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <IdentitySecurityView
+            devices={devices}
+            selectedHostnames={selectedHostnames}
+            onToggleSelect={handleToggleSelect}
+            onSelectAll={handleSelectAll}
+            onRefresh={fetchData}
+            onApplyIdentityPolicies={handleApplyIdentityPolicies}
+            onForceLogout={handleForceLogout}
+            isLoading={isLoading}
+            totalOnline={onlineCount}
+          />
+        )}
       </main>
 
       {/* Pie de página minimalista moderno */}

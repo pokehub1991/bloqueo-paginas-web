@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { db } from '../db/index.js';
 import { broadcastDeviceUpdate } from '../utils/sseManager.js';
 
@@ -11,7 +12,7 @@ let lastBroadcastTime = 0;
  * 3. Devuelve las directivas y el Hostname oficial al cliente para que lo sincronice.
  */
 export function heartbeat(req, res) {
-  const { hostname, ip, os = 'Windows' } = req.body || {};
+  const { hostname, ip, os = 'Windows', policyHash: clientHash } = req.body || {};
 
   if (!hostname || typeof hostname !== 'string' || !hostname.trim()) {
     return res.status(400).json({ error: 'El nombre del equipo (hostname) es obligatorio.' });
@@ -97,6 +98,36 @@ export function heartbeat(req, res) {
       }
     }
 
+    // Obtener políticas de identidad del equipo
+    const identRow = db.prepare(`
+      SELECT block_google_login, allowed_google_domains, block_incognito, 
+             clear_session_on_close, force_logout_trigger
+      FROM identity_policies WHERE hostname = ?
+    `).get(effectiveHostname) || {};
+
+    const identityPolicy = {
+      blockGoogleLogin: Boolean(identRow.block_google_login),
+      allowedGoogleDomains: identRow.allowed_google_domains || '',
+      blockIncognito: Boolean(identRow.block_incognito),
+      clearSessionOnClose: Boolean(identRow.clear_session_on_close),
+      forceLogoutTrigger: identRow.force_logout_trigger || 0
+    };
+
+    // Calcular Hash para optimización ETag en alta concurrencia (+1,000 equipos)
+    const hashData = `${policyMode}|${blockedUrls.join(',')}|${allowedUrls.join(',')}|${JSON.stringify(identityPolicy)}`;
+    const currentHash = crypto.createHash('md5').update(hashData).digest('hex').substring(0, 16);
+
+    // Si el cliente ya tiene el mismo hash, retornar respuesta mínima (< 90 bytes)
+    if (clientHash && clientHash === currentHash) {
+      return res.json({
+        notModified: true,
+        hostname: effectiveHostname,
+        policyHash: currentHash,
+        forceLogoutTrigger: identityPolicy.forceLogoutTrigger,
+        syncTime: new Date().toISOString()
+      });
+    }
+
     return res.json({
       hostname: effectiveHostname,
       ip: cleanIp,
@@ -104,8 +135,10 @@ export function heartbeat(req, res) {
       blockedUrls,
       allowedUrls,
       count: blockedUrls.length + allowedUrls.length,
+      identityPolicy,
+      policyHash: currentHash,
       syncTime: new Date().toISOString(),
-      message: 'Reglas sincronizadas según catálogo de IP.'
+      message: 'Reglas y políticas de seguridad sincronizadas.'
     });
   } catch (error) {
     console.error(`[Agente Heartbeat] Error al procesar equipo ${effectiveHostname}:`, error);
