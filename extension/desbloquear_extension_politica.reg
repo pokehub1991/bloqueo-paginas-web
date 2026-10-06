@@ -2,14 +2,34 @@ Windows Registry Editor Version 5.00
 
 ; ==============================================================
 ; UPC NetShield - Desbloqueador y Restaurador de Navegadores
-; Elimina la politica forzada (ExtensionInstallForcelist)
+; Restaura Incógnito, Cuentas de Perfil y desinstalación
 ; ==============================================================
 
-; 1. Google Chrome (Restaura control al usuario, habilita switch y boton Remove)
+; 1. Google Chrome
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome]
+"IncognitoModeAvailability"=-
+"BrowserSignin"=-
+"SyncDisabled"=-
+"SigninAllowed"=-
+"XGoogleAllowedDomains"=-
+
 [-HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
 
-; 2. Microsoft Edge (Restaura control al usuario, habilita switch y boton Remove)
+; 2. Microsoft Edge
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge]
+"IncognitoModeAvailability"=-
+"BrowserSignin"=-
+"SyncDisabled"=-
+
 [-HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist]
 
 ; 3. Brave Browser
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\BraveSoftware\Brave]
+"IncognitoModeAvailability"=-
+"SyncDisabled"=-
+
 [-HKEY_LOCAL_MACHINE\SOFTWARE\Policies\BraveSoftware\Brave\ExtensionInstallForcelist]
+
+; 4. Mozilla Firefox
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox]
+"DisablePrivateBrowsing"=-

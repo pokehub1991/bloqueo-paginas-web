@@ -113,41 +113,22 @@ function isInternalOrServerUrl(targetUrl, serverUrl) {
 async function purgePersonalSessions() {
   console.log('[UPC NetShield] ⚡ Ejecutando purga inmediata de sesiones y credenciales de usuario...');
 
-  const targetOrigins = [
-    'https://accounts.google.com',
-    'https://google.com',
-    'https://myaccount.google.com',
-    'https://mail.google.com',
-    'https://drive.google.com',
-    'https://youtube.com',
-    'https://login.microsoftonline.com',
-    'https://login.live.com',
-    'https://outlook.office.com',
-    'https://outlook.live.com'
-  ];
+  // 1. Invalida sesión en servidor de Google silenciosamente
+  try {
+    fetch('https://accounts.google.com/Logout', { mode: 'no-cors' }).catch(() => {});
+  } catch {}
 
-  const targetDomains = [
-    'google.com',
-    'accounts.google.com',
-    'youtube.com',
-    'live.com',
-    'login.microsoftonline.com',
-    'login.live.com',
-    'microsoft.com',
-    'office.com'
-  ];
-
-  // 1. Limpieza a través de chrome.browsingData si está soportado
+  // 2. Limpieza exhaustiva a través de chrome.browsingData
   if (chrome.browsingData && chrome.browsingData.remove) {
     try {
-      await chrome.browsingData.remove({
-        origins: targetOrigins
-      }, {
+      await chrome.browsingData.remove({}, {
         cookies: true,
         localStorage: true,
         indexedDB: true,
         cache: true,
-        serviceWorkers: true
+        serviceWorkers: true,
+        passwords: true,
+        formData: true
       });
       console.log('[UPC NetShield] browsingData purgado exitosamente.');
     } catch (bErr) {
@@ -155,8 +136,20 @@ async function purgePersonalSessions() {
     }
   }
 
-  // 2. Limpieza exhaustiva de cookies por dominio
+  // 3. Limpieza de cookies de dominios específicos
   if (chrome.cookies && chrome.cookies.getAll) {
+    const targetDomains = [
+      'google.com',
+      '.google.com',
+      'accounts.google.com',
+      'youtube.com',
+      '.youtube.com',
+      'live.com',
+      '.live.com',
+      'login.microsoftonline.com',
+      'microsoft.com',
+      '.microsoft.com'
+    ];
     for (const domain of targetDomains) {
       try {
         const cookies = await chrome.cookies.getAll({ domain });
@@ -166,9 +159,7 @@ async function purgePersonalSessions() {
           const url = `${protocol}//${domainUrl}${c.path}`;
           chrome.cookies.remove({ url, name: c.name }).catch(() => {});
         }
-      } catch (cErr) {
-        // Ignorar dominios sin cookies
-      }
+      } catch {}
     }
   }
 }
@@ -191,21 +182,22 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
     if (srvHost) essentialDomains.push(srvHost);
 
     // =========================================================================
-    // REGLAS DEL SUBSISTEMA DE IDENTIDADES (Prioridad Alta: 20-25)
+    // REGLAS DEL SUBSISTEMA DE IDENTIDADES (Prioridad Alta: 20-30)
     // =========================================================================
 
     // 1. Bloqueo de inicio de sesión con cuentas personales en Google
     if (identityPolicy.blockGoogleLogin) {
       const googleAuthEndpoints = [
-        'accounts.google.com/signin/*',
-        'accounts.google.com/ServiceLogin*',
-        'accounts.google.com/o/oauth2/*'
+        'accounts.google.com*',
+        'accounts.youtube.com*',
+        'myaccount.google.com*',
+        'passwords.google.com*'
       ];
 
       for (const endpoint of googleAuthEndpoints) {
         newRules.push({
           id: ruleId++,
-          priority: 25,
+          priority: 30,
           action: {
             type: 'redirect',
             redirect: { extensionPath: '/blocked_auth.html' }
@@ -221,24 +213,27 @@ async function updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, serv
     // 2. Restricción de dominios permitidos de Google Workspace (Header Injection)
     if (identityPolicy.allowedGoogleDomains && identityPolicy.allowedGoogleDomains.trim()) {
       const allowedDomainsList = identityPolicy.allowedGoogleDomains.trim();
-      newRules.push({
-        id: ruleId++,
-        priority: 20,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: [
-            {
-              header: 'X-GoogApps-Allowed-Domains',
-              operation: 'set',
-              value: allowedDomainsList
-            }
-          ]
-        },
-        condition: {
-          urlFilter: '||google.com',
-          resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest']
-        }
-      });
+      const googleHosts = ['google.com', 'accounts.google.com', 'googleapis.com'];
+      for (const gh of googleHosts) {
+        newRules.push({
+          id: ruleId++,
+          priority: 20,
+          action: {
+            type: 'modifyHeaders',
+            requestHeaders: [
+              {
+                header: 'X-GoogApps-Allowed-Domains',
+                operation: 'set',
+                value: allowedDomainsList
+              }
+            ]
+          },
+          condition: {
+            urlFilter: `||${gh}`,
+            resourceTypes: ['main_frame', 'sub_frame', 'xmlhttprequest', 'other']
+          }
+        });
+      }
     }
 
     // =========================================================================
@@ -445,6 +440,32 @@ async function enforceActiveTabs(policyMode, blockedUrls, allowedUrls, serverUrl
 
 // --- GUARDIÁN DE MODO INCÓGNITO ---
 function setupIncognitoGuard() {
+  // 1. Escuchar ventanas nuevas (cierra la ventana incógnita al instante)
+  if (chrome.windows && chrome.windows.onCreated) {
+    chrome.windows.onCreated.addListener(async (win) => {
+      try {
+        if (!win.incognito) return;
+        const config = await getConfig();
+        if (config.identityPolicy?.blockIncognito) {
+          console.log('[UPC NetShield] 🕶️ Ventana en modo incógnito detectada y cerrada al instante.');
+          if (win.id) {
+            await chrome.windows.remove(win.id).catch(() => {});
+          }
+
+          const allWins = await chrome.windows.getAll();
+          const normalWin = allWins.find(w => !w.incognito);
+          if (normalWin) {
+            await chrome.tabs.create({
+              windowId: normalWin.id,
+              url: chrome.runtime.getURL('blocked_auth.html')
+            }).catch(() => {});
+          }
+        }
+      } catch {}
+    });
+  }
+
+  // 2. Escuchar pestañas en incógnito
   chrome.tabs.onCreated.addListener(async (tab) => {
     try {
       if (!tab.incognito) return;
@@ -453,16 +474,6 @@ function setupIncognitoGuard() {
         console.log('[UPC NetShield] 🕶️ Pestaña en modo incógnito detectada y cerrada por política.');
         if (tab.id) {
           await chrome.tabs.remove(tab.id).catch(() => {});
-        }
-
-        // Crear aviso en ventana normal
-        const windows = await chrome.windows.getAll();
-        const normalWin = windows.find(w => !w.incognito);
-        if (normalWin) {
-          await chrome.tabs.create({
-            windowId: normalWin.id,
-            url: chrome.runtime.getURL('blocked_auth.html')
-          }).catch(() => {});
         }
       }
     } catch {}
@@ -478,6 +489,31 @@ function setupIncognitoGuard() {
       }
     } catch {}
   });
+}
+
+// --- GUARDIÁN DE INTERCEPCIÓN WEB DE AUTENTICACIÓN ---
+function setupWebAuthGuard() {
+  if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
+    chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+      if (details.frameId !== 0) return; // Solo marco principal
+      try {
+        const config = await getConfig();
+        if (config.identityPolicy?.blockGoogleLogin) {
+          const u = (details.url || '').toLowerCase();
+          if (
+            u.includes('accounts.google.com') ||
+            u.includes('accounts.youtube.com') ||
+            u.includes('myaccount.google.com')
+          ) {
+            console.log('[UPC NetShield] 🔒 Intento de acceso a login de Google interceptado:', details.url);
+            await chrome.tabs.update(details.tabId, {
+              url: chrome.runtime.getURL('blocked_auth.html')
+            }).catch(() => {});
+          }
+        }
+      } catch {}
+    });
+  }
 }
 
 // --- GUARDIÁN DE CIERRE DE SESIONES AL SALIR ---
@@ -580,6 +616,12 @@ async function syncWithServer() {
       await purgePersonalSessions();
     }
 
+    // Si se acaba de activar el bloqueo de Google, purgar sesiones existentes de inmediato
+    if (identityPolicy.blockGoogleLogin && !config.identityPolicy?.blockGoogleLogin) {
+      console.log('[UPC NetShield] 🔒 Bloqueo de Google activado. Purgando sesiones abiertas...');
+      await purgePersonalSessions();
+    }
+
     // Actualizar reglas declarativas si hubo cambios
     if (incomingHash !== config.policyHash || !config.isConnected) {
       await updateDeclarativeRules(policyMode, blockedUrls, allowedUrls, config.serverUrl, identityPolicy);
@@ -612,6 +654,7 @@ async function syncWithServer() {
 // Iniciar guardianes de seguridad
 setupIncognitoGuard();
 setupClearOnCloseGuard();
+setupWebAuthGuard();
 
 // --- CONFIGURACIÓN DE ALARMAS Y EVENTOS ---
 chrome.runtime.onInstalled.addListener(async () => {

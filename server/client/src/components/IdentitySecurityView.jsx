@@ -18,7 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  Layers
+  Layers,
+  Download
 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/api';
 
@@ -48,6 +49,46 @@ export default function IdentitySecurityView({
 
   // Modal de confirmación para cierre forzado de sesión
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
+
+  const downloadPolicyReg = () => {
+    const regContent = `Windows Registry Editor Version 5.00
+
+; ==============================================================
+; UPC NetShield - Bloqueo de Modo Incógnito y Cuentas de Google
+; Inhabilita la navegación privada y el inicio de sesión de perfil
+; ==============================================================
+
+; 1. Google Chrome
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Google\\Chrome]
+"IncognitoModeAvailability"=dword:00000001
+"BrowserSignin"=dword:00000000
+"SyncDisabled"=dword:00000001
+"SigninAllowed"=dword:00000000
+"XGoogleAllowedDomains"="upc.edu.pe"
+
+; 2. Microsoft Edge
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Edge]
+"IncognitoModeAvailability"=dword:00000001
+"BrowserSignin"=dword:00000000
+"SyncDisabled"=dword:00000001
+
+; 3. Brave Browser
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\BraveSoftware\\Brave]
+"IncognitoModeAvailability"=dword:00000001
+"SyncDisabled"=dword:00000001
+
+; 4. Mozilla Firefox
+[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Mozilla\\Firefox]
+"DisablePrivateBrowsing"=dword:00000001
+`;
+    const blob = new Blob([regContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bloquear_cuentas_e_incognito.reg';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Estadísticas dinámicas de identidad
   const stats = useMemo(() => {
@@ -356,6 +397,35 @@ export default function IdentitySecurityView({
           <div className="mt-3 pt-2.5 border-t border-border/40 text-[10px] text-foreground-muted flex items-center justify-between">
             <span>Purga de cookies y almacenamiento</span>
           </div>
+        </div>
+      </div>
+
+      {/* 2.5 BANNER DE ARQUITECTURA DE PROTECCIÓN DUAL */}
+      <div className="p-4 rounded-xl bg-surface border border-border/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 rounded-xl bg-brand-500/15 text-brand-400 border border-brand-500/25 shrink-0 mt-0.5">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-xs md:text-sm font-bold text-white flex items-center gap-2">
+              Protección de Cuentas y Modo Incógnito (Doble Capa)
+            </h4>
+            <p className="text-[11px] text-foreground-muted leading-relaxed mt-0.5 max-w-3xl">
+              1. <strong>Nivel Sistema / Navegador</strong>: Bloquea el botón de perfil superior de Chrome/Edge (evita iniciar sesión en la app y sincronizar cuentas personales) e inactiva el <strong>Modo Incógnito</strong> en el registro de Windows.<br/>
+              2. <strong>Nivel Web</strong>: La extensión intercepta las páginas de login de Google en tiempo real e inyecta la cabecera institucional.
+            </p>
+          </div>
+        </div>
+
+        <div className="shrink-0 w-full md:w-auto">
+          <button
+            onClick={downloadPolicyReg}
+            className="w-full md:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface-elevated hover:bg-surface-highlight border border-border hover:border-brand-500/50 text-white text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm"
+            title="Descargar archivo de registro para aplicar políticas de Windows"
+          >
+            <Download className="w-4 h-4 text-brand-400" />
+            <span>Descargar Directiva Windows (.reg)</span>
+          </button>
         </div>
       </div>
 

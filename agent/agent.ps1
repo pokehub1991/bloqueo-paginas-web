@@ -422,7 +422,8 @@ function Update-FirefoxPoliciesJson {
     param(
         [string]$PolicyMode = "block_list",
         [string[]]$BlockedUrls,
-        [string[]]$AllowedUrls
+        [string[]]$AllowedUrls,
+        [psobject]$IdentityPolicy = $null
     )
 
     $firefoxDirs = @(
@@ -445,6 +446,15 @@ function Update-FirefoxPoliciesJson {
                         DNSOverHTTPS = @{
                             Enabled = $false
                         }
+                    }
+                }
+
+                if ($IdentityPolicy) {
+                    if ($IdentityPolicy.blockIncognito) {
+                        $policyObj.policies["DisablePrivateBrowsing"] = $true
+                    }
+                    if ($IdentityPolicy.clearSessionOnClose) {
+                        $policyObj.policies["SanitizeOnShutdown"] = $true
                     }
                 }
 
@@ -574,7 +584,8 @@ function Apply-BrowserPolicies {
         [string]$PolicyMode = "block_list",
         [string[]]$BlockedUrls,
         [string[]]$AllowedUrls,
-        [hashtable]$Config
+        [hashtable]$Config,
+        [psobject]$IdentityPolicy = $null
     )
 
     $normBlocked = @($BlockedUrls | Where-Object { $_ } | ForEach-Object { $_.Trim().ToLower() } | Sort-Object -Unique)
@@ -675,6 +686,52 @@ function Apply-BrowserPolicies {
                     Set-ItemProperty -Path $baseKey -Name "DnsOverHttpsMode" -Value "off" -Type String -Force -ErrorAction SilentlyContinue | Out-Null
                 }
 
+                # Aplicar Directivas de Seguridad de Cuentas, Perfiles e Incógnito
+                if ($IdentityPolicy) {
+                    $blockIncognito = [bool]$IdentityPolicy.blockIncognito
+                    $blockGoogle = [bool]$IdentityPolicy.blockGoogleLogin
+                    $allowedDomains = [string]$IdentityPolicy.allowedGoogleDomains
+
+                    if ($browser.IsChromium) {
+                        # 1. Modo Incógnito / InPrivate (1 = Inhabilitado, 0 = Permitido)
+                        $incognitoVal = if ($blockIncognito) { 1 } else { 0 }
+                        Set-ItemProperty -Path $baseKey -Name "IncognitoModeAvailability" -Value $incognitoVal -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+
+                        # 2. Inicios de sesión en el Perfil de Navegador y Cuentas de Google
+                        if ($blockGoogle) {
+                            # Deshabilita completamente el inicio de sesión en el navegador (Browser Profile Signin)
+                            Set-ItemProperty -Path $baseKey -Name "BrowserSignin" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                            Set-ItemProperty -Path $baseKey -Name "SyncDisabled" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                            Set-ItemProperty -Path $baseKey -Name "SigninAllowed" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                        } else {
+                            if ($allowedDomains -and $allowedDomains.Trim()) {
+                                $cleanDomain = $allowedDomains.Trim()
+                                Set-ItemProperty -Path $baseKey -Name "BrowserSignin" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                                Set-ItemProperty -Path $baseKey -Name "RestrictSigninToPattern" -Value ".*@$cleanDomain" -Type String -Force -ErrorAction SilentlyContinue | Out-Null
+                                Set-ItemProperty -Path $baseKey -Name "XGoogleAllowedDomains" -Value $cleanDomain -Type String -Force -ErrorAction SilentlyContinue | Out-Null
+                                Set-ItemProperty -Path $baseKey -Name "SigninAllowed" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                            } else {
+                                Remove-ItemProperty -Path $baseKey -Name "BrowserSignin" -ErrorAction SilentlyContinue | Out-Null
+                                Remove-ItemProperty -Path $baseKey -Name "SyncDisabled" -ErrorAction SilentlyContinue | Out-Null
+                                Remove-ItemProperty -Path $baseKey -Name "SigninAllowed" -ErrorAction SilentlyContinue | Out-Null
+                                Remove-ItemProperty -Path $baseKey -Name "RestrictSigninToPattern" -ErrorAction SilentlyContinue | Out-Null
+                                Remove-ItemProperty -Path $baseKey -Name "XGoogleAllowedDomains" -ErrorAction SilentlyContinue | Out-Null
+                            }
+                        }
+
+                        # 3. Limpieza de datos y cookies al salir
+                        if ($IdentityPolicy.clearSessionOnClose) {
+                            Set-ItemProperty -Path $baseKey -Name "ClearBrowsingDataOnExitList" -Value @("cookies_and_other_site_data", "cached_images_and_files") -Type MultiString -Force -ErrorAction SilentlyContinue | Out-Null
+                        } else {
+                            Remove-ItemProperty -Path $baseKey -Name "ClearBrowsingDataOnExitList" -ErrorAction SilentlyContinue | Out-Null
+                        }
+                    } else {
+                        # Firefox
+                        $ffPrivVal = if ($blockIncognito) { 1 } else { 0 }
+                        Set-ItemProperty -Path $baseKey -Name "DisablePrivateBrowsing" -Value $ffPrivVal -Type DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                    }
+                }
+
                 $currBlock = Get-RegistryStringList -Path $blockKey
                 $currAllow = Get-RegistryStringList -Path $allowKey
 
@@ -761,6 +818,8 @@ do {
         $allowedUrls = @()
         if ($response.allowedUrls) { $allowedUrls = @($response.allowedUrls) }
 
+        $identityPolicy = $response.identityPolicy
+
         # 1. Aplicar en hosts de Windows (efecto instantáneo al navegar)
         Update-HostsFile -PolicyMode $policyMode -BlockedUrls $blockedUrls
 
@@ -768,10 +827,10 @@ do {
         Update-FirewallPolicy -PolicyMode $policyMode -ServerUrl $config.ServerUrl
 
         # 3. Aplicar directivas de registro en HKLM, HKCU y todos los usuarios
-        Apply-BrowserPolicies -PolicyMode $policyMode -BlockedUrls $blockedUrls -AllowedUrls $allowedUrls -Config $config
+        Apply-BrowserPolicies -PolicyMode $policyMode -BlockedUrls $blockedUrls -AllowedUrls $allowedUrls -Config $config -IdentityPolicy $identityPolicy
 
         # 4. Actualizar policies.json de Firefox
-        Update-FirefoxPoliciesJson -PolicyMode $policyMode -BlockedUrls $blockedUrls -AllowedUrls $allowedUrls
+        Update-FirefoxPoliciesJson -PolicyMode $policyMode -BlockedUrls $blockedUrls -AllowedUrls $allowedUrls -IdentityPolicy $identityPolicy
 
         # 5. Cortar sockets TCP activos hacia sitios o puertos restringidos
         Sever-ActiveBrowserSockets -PolicyMode $policyMode -BlockedUrls $blockedUrls

@@ -23,6 +23,7 @@
     "scripts": ["background.js"],
     "service_worker": "background.js"
   },
+  "incognito": "spanning",
   "permissions": [
     "declarativeNetRequest",
     "storage",

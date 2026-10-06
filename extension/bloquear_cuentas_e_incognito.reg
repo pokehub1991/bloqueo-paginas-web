@@ -1,9 +1,8 @@
 Windows Registry Editor Version 5.00
 
 ; ==============================================================
-; UPC NetShield - Bloqueo Empresarial Forzado (Modo LanSchool)
-; ID Oficial: eijeibflalbhaehajeiiopcemmlhopih
-; Inhabilita: Desinstalacion, Modo Incognito y Cuentas Personales
+; UPC NetShield - Bloqueo de Modo Incógnito y Cuentas de Google
+; Inhabilita la navegación privada y el inicio de sesión de perfil
 ; ==============================================================
 
 ; 1. Google Chrome
@@ -14,22 +13,17 @@ Windows Registry Editor Version 5.00
 "SigninAllowed"=dword:00000000
 "XGoogleAllowedDomains"="upc.edu.pe"
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
-"1"="eijeibflalbhaehajeiiopcemmlhopih;https://clients2.google.com/service/update2/crx"
-
 ; 2. Microsoft Edge
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge]
 "IncognitoModeAvailability"=dword:00000001
 "BrowserSignin"=dword:00000000
 "SyncDisabled"=dword:00000001
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist]
-"1"="eijeibflalbhaehajeiiopcemmlhopih;https://clients2.google.com/service/update2/crx"
-
 ; 3. Brave Browser
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\BraveSoftware\Brave]
 "IncognitoModeAvailability"=dword:00000001
 "SyncDisabled"=dword:00000001
 
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\BraveSoftware\Brave\ExtensionInstallForcelist]
-"1"="eijeibflalbhaehajeiiopcemmlhopih;https://clients2.google.com/service/update2/crx"
+; 4. Mozilla Firefox
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox]
+"DisablePrivateBrowsing"=dword:00000001
